@@ -199,7 +199,7 @@ Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` 
 Limits:
 
 - Static source scanning only: no reflection, macro expansion, generated code, or runtime dependency injection.
-- Rust `use` items are resolved to the nearest known local module; `pub use` and `extern crate` are included. `include!`, `#[path]`, and `macro_rules!` are reported as unparsed.
+- Rust `use` items are resolved to the nearest known local module; `pub use`, `pub(crate) use`, `pub(super) use`, `pub(in path) use`, and `extern crate` are included. Unrecognized visibility forms are reported as unparsed, as are `include!`, `#[path]`, and `macro_rules!`.
 - Go imports come from source files, not `go list`; `vendor/` is skipped. Build-tagged files are reported as unparsed.
 - TypeScript handles single-line static imports/exports, `require()`, and `import()`; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.
 - Native resolvers (`cargo metadata` plus a Rust AST, `go list -json`, or the TypeScript compiler API) would be more precise but require toolchain dependencies in CI. These extractors stay dependency-free.
