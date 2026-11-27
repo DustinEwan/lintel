@@ -6,6 +6,8 @@ case, policy evolution, is normal use of the contract, not an exception.
 The rule: an exception must be explicit, bounded, reviewable, and visible in
 checker output. Silent skipping is not an exception; it is a defect.
 
+Implementation status and deterministic extractor gaps live in [docs/limitations.md](docs/limitations.md).
+
 | Case | Mechanism | Baselineable | Review authority | Status |
 | --- | --- | --- | --- | --- |
 | Bootstrapping | `init` scaffold | N/A | scaffold config in version control | Implemented |

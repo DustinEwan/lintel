@@ -2,6 +2,8 @@
 
 Status: inventory. No semantic judge exists yet.
 
+Implementation status and deterministic extractor gaps live in [docs/limitations.md](docs/limitations.md).
+
 ## Purpose
 
 Deterministic analyzers are good at syntax-shaped facts: imports, call names,
