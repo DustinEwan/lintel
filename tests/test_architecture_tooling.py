@@ -44,6 +44,23 @@ def real_policy():
     config = architecture_config.load_config(CONFIG_PATH)
     return policy_from_dict(architecture_config.policy_from_config(config))
 
+def module_ctor(source, name):
+    suffix = f'=> "{name}"'
+    for line in source.splitlines():
+        if line.startswith("  | GeneratedModule.m") and line.endswith(suffix):
+            return line.split("=>", 1)[0].strip().removeprefix("| ").removeprefix("GeneratedModule.").strip()
+    raise AssertionError(f"missing generated module for {name}")
+
+
+def generated_rank(source, ctor):
+    prefix = f"  | GeneratedModule.{ctor} => "
+    lines = source.splitlines()
+    start = lines.index("def generatedRank : GeneratedModule → Nat")
+    for line in lines[start:]:
+        if line.startswith(prefix) and line[len(prefix) :].isdigit():
+            return int(line[len(prefix) :])
+    raise AssertionError(f"missing generated rank for {ctor}")
+
 
 def declared_modules(policy):
     return tuple(
@@ -330,11 +347,69 @@ class LeanGeneratorTests(unittest.TestCase):
         )
         source = lean_generator.generate(facts, policy)
         self.assertIn("import Architecture", source)
-        self.assertIn("def generatedArchitecture : Architecture where", source)
-        self.assertIn("core_cannot_reach_outer generatedArchitecture", source)
-        self.assertIn("def generatedPolicyArchitecture : PolicyArchitecture where", source)
-        self.assertIn("path_allowed generatedPolicyArchitecture", source)
+        for declaration in (
+            "def generatedArchitecture : Architecture where",
+            "def generatedEdgePolicy : EdgePolicy GeneratedRegion where",
+            "def generatedPolicyArchitecture : PolicyArchitecture where",
+            "def generatedAcyclicArchitecture : AcyclicArchitecture where",
+            "def generatedNestedArchitecture : NestedArchitecture where",
+            "def generatedPortOf",
+            "def generatedAdapterOf",
+            "def generatedInvertedCallOf",
+            "def generatedRegionOrder : RegionOrder GeneratedRegion where",
+            "def generatedLayered : MultiCoreLayeredArchitecture where",
+            "def generatedUseCaseBoundary : UseCaseBoundary generatedArchitecture where",
+            "def generatedEntrypoints : EntrypointInventory generatedArchitecture GeneratedRegion where",
+            "def generatedScopes : ScopeInventory generatedArchitecture GeneratedScope where",
+            "def generatedBoundaryConcerns : BoundaryConcernInventory generatedArchitecture where",
+            "def generatedWrappers : WrapperInventory generatedArchitecture where",
+            "def generatedReviews : ReviewInventory generatedArchitecture where",
+            "theorem generated_core_cannot_reach_outer",
+            "theorem generated_path_allowed",
+            "theorem generated_acyclic : Acyclic generatedDep",
+            "theorem generated_core_region_path",
+            "theorem generated_adapter_unreachable_from_core",
+            "theorem generated_inverted_call_avoids_adapter",
+        ):
+            self.assertIn(declaration, source)
 
+
+    def test_generated_rank_decreases_along_dependencies(self):
+        policy = real_policy()
+        facts = FactSet(
+            modules=(
+                Module("adapters.contract_facts"),
+                Module("architecture_core.model"),
+            ),
+            dependencies=(
+                Dependency("adapters.contract_facts", "architecture_core.model"),
+            ),
+        )
+        source = lean_generator.generate(facts, policy)
+        source_ctor = module_ctor(source, "adapters.contract_facts")
+        target_ctor = module_ctor(source, "architecture_core.model")
+        self.assertLess(
+            generated_rank(source, target_ctor),
+            generated_rank(source, source_ctor),
+        )
+
+    def test_accepted_review_is_not_pending(self):
+        policy = real_policy()
+        facts = FactSet(
+            modules=(Module("adapters.impl", "adapters/impl.py"),),
+            reviews=(
+                SemanticReview("adapters.impl", "adapters/impl.py", 1, "ambiguous"),
+            ),
+        )
+        pending = lean_generator.generate(facts, policy)
+        accepted = lean_generator.generate(facts, policy, ("adapters/impl.py",))
+        ctor = module_ctor(pending, "adapters.impl")
+        pending_row = f"| ReviewState.pending, GeneratedModule.{ctor} => true"
+        accepted_row = f"| ReviewState.accepted, GeneratedModule.{ctor} => true"
+        self.assertIn(pending_row, pending)
+        self.assertNotIn(accepted_row, pending)
+        self.assertNotIn(pending_row, accepted)
+        self.assertIn(accepted_row, accepted)
 
 
 

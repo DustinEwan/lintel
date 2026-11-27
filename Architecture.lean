@@ -370,6 +370,112 @@ theorem adapter_not_cli_concern (A : Architecture) (p : Port A)
   intro h
   exact hne (entry.surface_only h)
 
+/-- An architecture whose dependency graph is acyclic. -/
+structure AcyclicArchitecture where
+  arch : Architecture
+  acyclic : Acyclic arch.dep
+
+/-- A decreasing rank proves acyclicity. -/
+theorem acyclic_of_rank {α : Type u} (r : α → α → Prop) (rank : α → Nat)
+    (h : ∀ {a b : α}, r a b → rank b < rank a) : Acyclic r := by
+  intro a hp
+  have hrank : ∀ {a b : α}, Path r a b → rank b < rank a := by
+    intro a b path
+    induction path with
+    | step hd => exact h hd
+    | trans hp hd ih => exact Nat.lt_trans (h hd) ih
+  exact Nat.lt_irrefl _ (hrank hp)
+
+/-- A core use case may depend only on allowed target modules. -/
+structure UseCaseBoundary (A : Architecture) where
+  UseCase : Set A.Module
+  AllowedTarget : Set A.Module
+  pure : ∀ {a b : A.Module}, UseCase a → A.dep a b → AllowedTarget b
+
+/-- Declared and discovered process entrypoints, with their owning region. -/
+structure EntrypointInventory (A : Architecture) (ρ : Type v) where
+  regionOf : A.Module → ρ
+  entryRegion : ρ
+  declared : Set A.Module
+  wrapped : Set A.Module
+  discovered : Set A.Module
+  governed : Set A.Module
+  discovered_declared : ∀ m : A.Module, governed m → discovered m →
+    declared m ∨ wrapped m
+  outer : ∀ m : A.Module, discovered m → ¬ A.Core m
+  owned : ∀ m : A.Module, declared m → regionOf m = entryRegion
+
+/-- Scope assignments and their expected conventions. -/
+structure ScopeInventory (A : Architecture) (σ : Type v) where
+  scopeOf : A.Module → σ
+  expectedOf : A.Module → σ
+  assigned : Set A.Module
+  conforms : ∀ m : A.Module, assigned m → scopeOf m = expectedOf m
+
+/-- Boundary concerns observed in source modules. -/
+structure BoundaryConcernInventory (A : Architecture) where
+  argv : Set A.Module
+  environment : Set A.Module
+  exitCode : Set A.Module
+  terminalIO : Set A.Module
+  entrypointOnly : Set A.Module
+  outer : ∀ m : A.Module,
+    argv m ∨ environment m ∨ exitCode m ∨ terminalIO m → ¬ A.Core m
+  entrypointOnly_outer : ∀ m : A.Module, entrypointOnly m → ¬ A.Core m
+
+/-- Kinds of operation an entrypoint wrapper may perform. -/
+inductive WrapperOperationKind where
+  | importOp
+  | subprocess
+  | policyConstruction
+  | sourceWalk
+  | parseSource
+  deriving DecidableEq, Repr
+
+/-- Operations observed in entrypoints and their declared command surface. -/
+structure WrapperInventory (A : Architecture) where
+  operations : WrapperOperationKind → Set A.Module
+  declaredCommands : Set A.Module
+  outer : ∀ (k : WrapperOperationKind) (m : A.Module),
+    operations k m → ¬ A.Core m
+  subprocess_declared : ∀ m : A.Module,
+    operations WrapperOperationKind.subprocess m → declaredCommands m
+
+/-- Review state for semantically ambiguous source facts. -/
+inductive ReviewState where
+  | pending
+  | accepted
+  deriving DecidableEq, Repr
+
+/-- Flagged reviews cannot also be accepted. -/
+structure ReviewInventory (A : Architecture) where
+  state : ReviewState → Set A.Module
+  disjoint : ∀ (m : A.Module), state ReviewState.pending m →
+    state ReviewState.accepted m → False
+
+/-- A layered architecture with a set of core regions instead of one. -/
+structure MultiCoreLayeredArchitecture where
+  Module : Type u
+  Region : Type v
+  dep : Module → Module → Prop
+  Core : Set Module
+  core_closed : ∀ {a b : Module}, Core a → dep a b → Core b
+  region : Module → Region
+  order : RegionOrder Region
+  coreRegions : Set Region
+  region_of_core : ∀ m : Module, Core m → coreRegions (region m)
+  inward_region : ∀ {a b : Module}, dep a b → order.le (region b) (region a)
+
+/-- A dependency path from a core module stays in a core region. -/
+theorem multi_core_region_path (A : MultiCoreLayeredArchitecture) {a b : A.Module}
+    (ha : A.Core a) (h : Path A.dep a b) : A.coreRegions (A.region b) := by
+  have hb : A.Core b := core_closed_path
+    { Module := A.Module
+      dep := A.dep
+      Core := A.Core
+      core_closed := A.core_closed } ha h
+  exact A.region_of_core b hb
+
 /-!
 ## Concrete finite instance
 

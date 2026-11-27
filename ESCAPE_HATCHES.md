@@ -66,6 +66,7 @@ Detected cases produce `semantic_review` with the source location and reason.
 judge decision, not an automatic pass. Accepting one records that the case was
 reviewed. A future semantic judge may classify these as compliant, violating,
 or `needs-human-review`; the deterministic checker does not guess.
+Generated Lean marks baseline-accepted reviews as accepted; all other findings are pending.
 
 ## 5. Policy evolution
 

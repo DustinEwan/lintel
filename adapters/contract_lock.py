@@ -10,6 +10,7 @@ from architecture_core.model import Violation
 from architecture_core.rules import catalog_data, rule_spec
 
 CHECKER_ARTIFACTS = (
+    "Architecture.lean",
     "architecture_core/model.py",
     "architecture_core/checker.py",
     "architecture_core/rules.py",

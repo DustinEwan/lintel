@@ -174,7 +174,9 @@ The spec also defines `Port`, `Adapter`, `CapabilityPort`, `CapabilityAdapter`, 
 
 Acyclicity is scoped to dependency graphs extracted below the package or project-reference level. Cargo rejects ordinary package dependency cycles and TypeScript project references reject reference cycles; the remaining practical gaps are module-level cycles inside a crate/project and dev/test-only edges.
 
-This verifies the **formal model**. The adapters in `adapters/` bridge real source code to that model: extractors emit `Module` and `dep` facts, and the checker enforces the same core-closure and acyclicity rules in decidable form.
+This verifies the **formal model**. The adapters in `adapters/` bridge real source code to that model: extractors emit `Module` and `dep` facts, and the checker enforces the same rules in decidable form.
+
+`generate-lean` instantiates every executable-fact category from the checker in the generated module: core and policy architecture, acyclicity, nested embedding, ports/adapters/inverted calls, multi-core layered regions, use-case purity, declared entrypoints, scope assignments, boundary concerns, wrapper operations, and semantic review state. `MultiCoreLayeredArchitecture` is used because the current policy has several core regions. The current policy also permits same-region edges and multiple core regions, so no strict layered instance is emitted. Typed capability structures and extraction/runtime semantics remain abstract or outside the generated instance.
 
 Toolchain: Lean 4.36.0, pinned in `lean-toolchain`.
 
@@ -232,7 +234,7 @@ python3 external/cli/architecture.py init --preset clean --output /path/to/new-p
 python3 external/cli/architecture.py --root /path/to/project generate-lean --out /path/to/GeneratedFacts.lean [--no-check]
 ```
 
-`generate-lean` emits a finite Lean module that imports `Architecture`, instantiates `Architecture` and `PolicyArchitecture`, and proves their fields from the emitted facts. By default it then runs `lake build` and checks the generated module with `lake env lean`; use `--no-check` when the Lean toolchain is unavailable.
+`generate-lean` emits a finite Lean module that imports `Architecture` and instantiates its structures and theorems from the facts. Accepted `semantic_review` findings come from `architecture.baseline.json` (override with `--baseline`); all other findings are pending. By default it then runs `lake build` and checks the generated module with `lake env lean`; use `--no-check` when the Lean toolchain is unavailable.
 
 The Python extractor libraries are dependency-free. `adapters/python_extractor.py` uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
 Native extractor programs inside `adapters/` are build artifacts invoked by `external/cli` wrappers. `architecture.toml` records them under `[scopes.build_artifact]` and declares the wrapper surfaces under `[[executables]]`; their argv parsing is internal to the artifact, not the repository's public boundary.

@@ -35,6 +35,18 @@ def _emit(violations, output_format):
         print("OK: no architecture violations")
     return 1 if data else 0
 
+def _accepted_review_sources(runtime, path):
+    resolved = runtime.resolve(path)
+    if not os.path.isfile(resolved):
+        return ()
+    with open(resolved, encoding="utf-8") as handle:
+        data = json.load(handle)
+    return tuple(
+        item["location"]
+        for item in data.get("violations", ())
+        if item.get("rule") == "semantic_review" and item.get("location")
+    )
+
 
 def _check(args, runtime):
     request = SelfCheckRequest(
@@ -99,6 +111,11 @@ def main():
     generate.add_argument(
         "--no-check", action="store_true", help="skip lake build and generated-instance check"
     )
+    generate.add_argument(
+        "--baseline",
+        default="architecture.baseline.json",
+        help="accepted baseline used to mark semantic reviews accepted",
+    )
 
     args = parser.parse_args()
     runtime = ArchitectureRuntime(args.root)
@@ -133,7 +150,8 @@ def main():
             facts = runtime.collect_self_facts(config, PathOverrides())
         output = runtime.resolve(args.out)
         os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
-        lean_generator.write_instance(facts, policy, output)
+        accepted = _accepted_review_sources(runtime, args.baseline)
+        lean_generator.write_instance(facts, policy, output, accepted)
         print(f"Generated Lean instance at {args.out}.")
         if not args.no_check:
             runtime.run(["lake", "build"], cwd=runtime.tool_root)
