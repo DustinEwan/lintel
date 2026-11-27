@@ -9,7 +9,8 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-POLICY = os.path.join("tools", "self_policy.json")
+DEFAULT_CORE_ROOT = "architecture_core"
+DEFAULT_ADAPTERS_ROOT = "adapters"
 EXCLUDED_PREFIX = "tests/fixtures/"
 
 
@@ -79,8 +80,16 @@ def merge_facts(paths):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--core-root", default=DEFAULT_CORE_ROOT, help="core source root")
+    parser.add_argument(
+        "--adapters-root", default=DEFAULT_ADAPTERS_ROOT, help="adapter source root"
+    )
+    parser.add_argument("--policy", help="architecture policy JSON")
     parser.add_argument("--out", help="write merged facts to this path")
     args = parser.parse_args()
+
+    policy = args.policy or os.path.join(args.adapters_root, "self_policy.json")
+    core_prefix = args.core_root.strip("/") + "/"
 
     with tempfile.TemporaryDirectory() as directory:
         paths = []
@@ -89,12 +98,20 @@ def main():
             path = os.path.join(directory, name + ".json")
             paths.append((path, include_prefix))
             return path
+
+        python_extractor = os.path.join(args.adapters_root, "extract_python.py")
+        typescript_extractor = os.path.join(
+            args.adapters_root, "extract_typescript.py"
+        )
+        rust_dir = os.path.join(args.adapters_root, "rust-extractor")
+        go_dir = os.path.join(args.adapters_root, "go-extractor")
+
         run(
             [
                 sys.executable,
-                "tools/extract_python.py",
+                python_extractor,
                 "--root",
-                "tools",
+                args.adapters_root,
                 "--out",
                 output_path("python"),
             ]
@@ -102,42 +119,58 @@ def main():
         run(
             [
                 sys.executable,
-                "tools/extract_python.py",
+                python_extractor,
                 "--root",
                 ".",
                 "--out",
-                output_path("core", "architecture_core/"),
+                output_path("core", core_prefix),
             ]
         )
         run(
             [
                 sys.executable,
-                "tools/extract_typescript.py",
+                typescript_extractor,
                 "--root",
-                "tools",
+                args.adapters_root,
                 "--out",
                 output_path("typescript"),
             ]
         )
 
-        run(["cargo", "build", "--quiet", "--manifest-path", "rust-extractor/Cargo.toml"])
         run(
             [
-                os.path.join("rust-extractor", "target", "debug", "rust-extractor"),
+                "cargo",
+                "build",
+                "--quiet",
+                "--manifest-path",
+                os.path.join(rust_dir, "Cargo.toml"),
+            ]
+        )
+        run(
+            [
+                os.path.join(rust_dir, "target", "debug", "rust-extractor"),
                 "--root",
-                "rust-extractor",
+                rust_dir,
                 "--out",
                 output_path("rust"),
             ]
         )
 
         go_binary = os.path.join(directory, "go-extractor")
-        run(["go", "build", "-o", go_binary, "./go-extractor/main.go"])
+        run(
+            [
+                "go",
+                "build",
+                "-o",
+                go_binary,
+                os.path.join(go_dir, "main.go"),
+            ]
+        )
         run(
             [
                 go_binary,
                 "--root",
-                "go-extractor",
+                go_dir,
                 "--out",
                 output_path("go"),
             ]
@@ -160,10 +193,10 @@ def main():
         result = subprocess.run(
             [
                 sys.executable,
-                "tools/check_architecture.py",
+                os.path.join(args.adapters_root, "check_architecture.py"),
                 facts_path,
                 "--policy",
-                POLICY,
+                policy,
                 "--json",
             ],
             cwd=ROOT,

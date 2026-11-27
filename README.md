@@ -158,7 +158,7 @@ The spec also defines `Port`, `Adapter`, `CapabilityPort`, `CapabilityAdapter`, 
 
 Acyclicity is scoped to dependency graphs extracted below the package or project-reference level. Cargo rejects ordinary package dependency cycles and TypeScript project references reject reference cycles; the remaining practical gaps are module-level cycles inside a crate/project and dev/test-only edges.
 
-This verifies the **formal model**. The Python tools in `tools/` bridge real source code to that model: extractors emit `Module` and `dep` facts, and the checker enforces the same core-closure and acyclicity rules in decidable form.
+This verifies the **formal model**. The adapters in `adapters/` bridge real source code to that model: extractors emit `Module` and `dep` facts, and the checker enforces the same core-closure and acyclicity rules in decidable form.
 
 Toolchain: Lean 4.36.0, pinned in `lean-toolchain`.
 
@@ -171,12 +171,12 @@ lake build
 
 ## Extractors and checker
 
-`tools/extract_rust.py`, `tools/extract_go.py`, and `tools/extract_typescript.py` scan a project root and emit JSON facts:
+`adapters/extract_rust.py`, `adapters/extract_go.py`, and `adapters/extract_typescript.py` scan a project root and emit JSON facts:
 
 - `modules`: `{name, path, package?}` entries.
 - `dependencies`: `{from, to, kind, source, line}` entries.
 
-`tools/check_architecture.py` reads facts plus a policy with `regions`, `allowed`, and `forbidden` fields. It reports:
+`adapters/check_architecture.py` reads facts plus a policy with `regions`, `allowed`, and `forbidden` fields. It reports:
 
 - `core_outward`: a core module depends on a non-core module.
 - `forbidden_import`: a core module imports a forbidden target.
@@ -188,33 +188,34 @@ Policy patterns use shell-style `fnmatch`; the first matching region wins. `defa
 Usage:
 
 ```sh
-python3 tools/extract_rust.py --root /path/to/project --out rust-facts.json
-cargo run --manifest-path rust-extractor/Cargo.toml -- --root /path/to/project --out rust-native-facts.json
-python3 tools/extract_go.py --root /path/to/project --out go-facts.json
-python3 tools/extract_typescript.py --root /path/to/project --out ts-facts.json
-python3 tools/extract_python.py --root /path/to/project --out py-facts.json
-go run ./go-extractor/main.go --root /path/to/project --out go-native-facts.json
+python3 adapters/extract_rust.py --root /path/to/project --out rust-facts.json
+cargo run --manifest-path adapters/rust-extractor/Cargo.toml -- --root /path/to/project --out rust-native-facts.json
+python3 adapters/extract_go.py --root /path/to/project --out go-facts.json
+python3 adapters/extract_typescript.py --root /path/to/project --out ts-facts.json
+python3 adapters/extract_python.py --root /path/to/project --out py-facts.json
+go run ./adapters/go-extractor/main.go --root /path/to/project --out go-native-facts.json
 npm install
-node tools/extract_typescript_native.mjs --root /path/to/project --out ts-native-facts.json
-python3 tools/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
-python3 tools/check_self.py
+node adapters/extract_typescript_native.mjs --root /path/to/project --out ts-native-facts.json
+python3 adapters/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
+python3 adapters/check_self.py
 ```
 
-The Python tools are dependency-free. `tools/extract_python.py` is the extractor for Python projects and uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `tools/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
-Core logic lives in `architecture_core/`: pure fact types, policy matching, and checker rules. `tools/` contains CLI adapters and extractors that translate source syntax into facts; `extract_common.py` is filesystem/JSON infrastructure. Dependencies point inward: adapters -> core; core has no source or CLI dependencies.
+The Python adapters are dependency-free. `adapters/extract_python.py` is the extractor for Python projects and uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
+Core logic lives in `architecture_core/`: pure fact types, policy matching, and checker rules. `adapters/` contains CLI adapters and extractors that translate source syntax into facts; `extract_common.py` is filesystem/JSON infrastructure. Dependencies point inward: adapters -> core; core has no source or CLI dependencies.
 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
 
-Dogfooding: `python3 tools/check_self.py` extracts `architecture_core/` and `tools/` as separate import roots, merges facts from all extractors, and checks them against `tools/self_policy.json`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
+Dogfooding: `python3 adapters/check_self.py` extracts `architecture_core/` and `adapters/` as separate import roots, merges facts from all extractors, and checks them against `adapters/self_policy.json`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
+Directory names are conventions, not architecture. Use `--adapters-root drivers` and `--core-root domain` to retarget extraction; region names and patterns in the policy are independent of folder names, so modules under `drivers/` can still belong to the `adapters` region.
 
 Limits:
 
 - Python extractors are static source scanners; native extractors use language toolchains. Reflection, generated code, and runtime dependency injection remain out of scope.
-- `tools/extract_python.py` handles absolute and relative imports, `__init__.py` packages, `src/` layouts, and literal `importlib`/`__import__` calls. Relative dynamic imports are resolved against `package=` or the current package; parse errors, non-literal or unresolved dynamic imports, and `eval`/`exec` are reported as unparsed.
+- `adapters/extract_python.py` handles absolute and relative imports, `__init__.py` packages, `src/` layouts, and literal `importlib`/`__import__` calls. Relative dynamic imports are resolved against `package=` or the current package; parse errors, non-literal or unresolved dynamic imports, and `eval`/`exec` are reported as unparsed.
 - Rust `use` items are resolved to the nearest known local module; `pub use`, `pub(crate) use`, `pub(super) use`, `pub(in path) use`, and `extern crate` are included. Unrecognized visibility forms are reported as unparsed, as are `include!`, `#[path]`, and `macro_rules!`. The native extractor parses Rust ASTs with `syn`, reads the package name from `cargo metadata`, and reports workspace roots as unparsed instead of attributing all members to the first package.
 - The Python Go scanner parses import declarations from source. `go-extractor` uses `go list -json` plus `go/parser` for package paths and import positions. Build-tagged and unparseable files are reported as unparsed.
 - The Python TypeScript scanner handles single-line static imports/exports, `require()`, and `import()` including import attributes across `.ts`, `.tsx`, `.mts`, `.cts`, `.mjs`, and `.cjs`; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.
-- `tools/extract_typescript_native.mjs` parses TypeScript ASTs, honors `tsconfig.json`, resolves relative imports, and covers multi-line imports, type-only imports, re-exports, `import type`, dynamic imports with import attributes, and non-literal dynamic dependencies. Parse errors, unresolved relative specifiers, and unsupported extra dynamic arguments are reported as unparsed.
+- `adapters/extract_typescript_native.mjs` parses TypeScript ASTs, honors `tsconfig.json`, resolves relative imports, and covers multi-line imports, type-only imports, re-exports, `import type`, dynamic imports with import attributes, and non-literal dynamic dependencies. Parse errors, unresolved relative specifiers, and unsupported extra dynamic arguments are reported as unparsed.
 - Python scanners remain available when language toolchains are not installed; Python extraction needs only Python 3, while the other native extractors require Rust, Go 1.22+, and TypeScript/Node toolchains respectively.
 
 The fixtures under `tests/fixtures/` contain deliberate violations and are useful for smoke-testing the pipeline.

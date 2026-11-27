@@ -4,7 +4,7 @@
   "private": true,
   "description": "Native TypeScript extractor for architecture dependency facts",
   "scripts": {
-    "extract:ts": "node tools/extract_typescript_native.mjs"
+    "extract:ts": "node adapters/extract_typescript_native.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"
