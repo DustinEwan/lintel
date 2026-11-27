@@ -924,6 +924,22 @@ class RustExtractorTests(unittest.TestCase):
             self.assertIn("macro_rules! can generate imports", reasons)
             self.assertEqual(data["dependencies"], [])
 
+    def test_literal_path_attribute_handles_pub_mod(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "Cargo.toml", '[package]\nname = "demo"\nversion = "0.1.0"\n')
+            self.write(
+                directory,
+                "src/lib.rs",
+                '#[path = "custom.rs"]\npub(crate) mod inner;\n',
+            )
+            self.write(directory, "src/custom.rs", "use crate::helper;\n")
+            self.write(directory, "src/helper.rs", "pub fn helper() {}\n")
+
+            data = rust_extractor.extract(directory)
+            modules = {item["name"]: item["path"] for item in data["modules"]}
+            self.assertEqual(modules.get("demo::inner"), "src/custom.rs")
+            self.assertEqual(data["unparsed"], [])
+
     def test_missing_literal_include_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             self.write(directory, "src/lib.rs", 'include!("missing.rs");\n')

@@ -20,7 +20,7 @@ UNSUPPORTED_RUST = [
 
 PATH_REDIRECT_RE = re.compile(
     r'#\s*\[\s*path\s*=\s*(?P<quote>["\'])(?P<path>[^"\']+)\1\s*\]'
-    r'\s*\bmod\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;'
+    r'\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;'
 )
 INCLUDE_LITERAL_RE = re.compile(
     r'\binclude!\s*\(\s*(?P<quote>["\'])(?P<path>[^"\']+)\1\s*\)\s*;'
