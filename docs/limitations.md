@@ -39,13 +39,13 @@ Concrete demo instances for strict layering, typed capabilities, or nesting woul
 
 ## 3. Implementable extractor gaps
 
-These are local, testable changes in language adapters. Each row is a candidate GitHub issue; no issue numbers are recorded here.
+These are local, testable changes in language adapters. Only these gaps have GitHub issues; trust boundaries and ambiguity scenarios stay documentation-only.
 
-| Gap | Current behavior | Location | Work required |
-| --- | --- | --- | --- |
-| Python TypeScript multi-line `from` clauses | Reported as `unparsed_source` | `lintel/adapters/typescript_extractor.py` | Extend import/export scanning to span newlines; native extractor already covers this |
-| Rust literal `#[path]` and `include!` | Reported as `unparsed_source` | `lintel/adapters/rust_extractor.py` | Resolve literal file redirects/includes to module facts |
-| Go build constraints | Every build-tagged file is reported as `unparsed_source` | `lintel/adapters/go_extractor.py` | Parse `//go:build` and `// +build` expressions and select active files |
+| Gap | Issue | Current behavior | Location | Work required |
+| --- | --- | --- | --- | --- |
+| Python TypeScript multi-line `from` clauses | [#1](https://github.com/DustinEwan/lintel/issues/1) | Reported as `unparsed_source` | `lintel/adapters/typescript_extractor.py` | Extend import/export scanning to span newlines; native extractor already covers this |
+| Rust literal `#[path]` and `include!` | [#2](https://github.com/DustinEwan/lintel/issues/2) | Reported as `unparsed_source` | `lintel/adapters/rust_extractor.py` | Resolve literal file redirects/includes to module facts |
+| Go build constraints | [#3](https://github.com/DustinEwan/lintel/issues/3) | Every build-tagged file is reported as `unparsed_source` | `lintel/adapters/go_extractor.py` | Parse `//go:build` and `// +build`, select files by host `GOOS`/`GOARCH`, and keep indeterminate constraints unparsed |
 
 Not quick wins:
 
