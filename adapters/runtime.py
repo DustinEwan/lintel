@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Concrete adapters for architecture workflows."""
 
+from dataclasses import asdict
+
+import glob
 import json
 import os
 import subprocess
 import tempfile
 
-from adapters import architecture_config
+from adapters import architecture_config, contract_facts, contract_lock
+from architecture_core import presets, rules
 from architecture_core.checker import check
 from architecture_core.model import (
     FactSet,
@@ -15,13 +19,15 @@ from architecture_core.model import (
     facts_from_dict,
     facts_to_dict,
     policy_from_dict,
+    violation_to_dict,
 )
+from architecture_core.ratchet import compare_baseline, violation_fingerprint
 
 DEFAULT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_CORE_ROOT = "architecture_core"
 DEFAULT_ADAPTERS_ROOT = "adapters"
+DEFAULT_ENTRYPOINTS_ROOT = "external/cli"
 DEFAULT_CONFIG = "architecture.toml"
-EXCLUDED_PREFIX = "tests/fixtures/"
 
 
 def load_json(path):
@@ -29,30 +35,35 @@ def load_json(path):
         return json.load(handle)
 
 
-def excluded(source):
-    return source.startswith(EXCLUDED_PREFIX)
-
-
-def merge_facts(paths):
+def merge_facts(paths, contract_data=None, excluded_scopes=()):
+    contract_data = contract_data or {}
+    excluded = {
+        item.get("path")
+        for item in contract_data.get("scopes", [])
+        if item.get("scope") in excluded_scopes
+    }
     modules = {}
     dependencies = {}
     unparsed = {}
 
+    def keep(source):
+        return source not in excluded
+
     for path, include_prefix in paths:
         facts = load_json(path)
 
-        def keep(source):
-            return not excluded(source) and (
+        def included(source):
+            return keep(source) and (
                 include_prefix is None or source.startswith(include_prefix)
             )
 
         for module in facts.get("modules", []):
-            if not keep(module["path"]):
+            if not included(module["path"]):
                 continue
             modules[(module["name"], module["path"])] = module
 
         for dependency in facts.get("dependencies", []):
-            if not keep(dependency["source"]):
+            if not included(dependency["source"]):
                 continue
             key = (
                 dependency["from"],
@@ -64,10 +75,16 @@ def merge_facts(paths):
             dependencies[key] = dependency
 
         for item in facts.get("unparsed", []):
-            if not keep(item["source"]):
+            if not included(item["source"]):
                 continue
             key = (item["source"], item["line"], item["reason"])
             unparsed[key] = item
+
+    for item in contract_data.get("unparsed", []):
+        if not keep(item["source"]):
+            continue
+        key = (item["source"], item["line"], item["reason"])
+        unparsed[key] = item
 
     return {
         "version": 1,
@@ -80,6 +97,21 @@ def merge_facts(paths):
         "unparsed": sorted(
             unparsed.values(), key=lambda item: (item["source"], item["line"])
         ),
+        "entrypoints": sorted(
+            contract_data.get("entrypoints", []), key=lambda item: item["path"]
+        ),
+        "concerns": sorted(
+            contract_data.get("concerns", []),
+            key=lambda item: (item["source"], item["line"], item["concern"]),
+        ),
+        "scopes": sorted(
+            contract_data.get("scopes", []),
+            key=lambda item: (item["path"], item["scope"], item["priority"]),
+        ),
+        "wrapper_operations": sorted(
+            contract_data.get("wrapper_operations", []),
+            key=lambda item: (item["source"], item["line"], item["operation"]),
+        ),
     }
 
 
@@ -88,7 +120,8 @@ class ArchitectureRuntime:
 
     def __init__(self, root=DEFAULT_ROOT):
         self.root = os.path.abspath(root)
-        self.entrypoints_root = os.path.join(self.root, "external", "cli")
+        self.tool_root = DEFAULT_ROOT
+        self.entrypoints_root = os.path.join(self.root, DEFAULT_ENTRYPOINTS_ROOT)
 
     def resolve(self, path):
         return path if os.path.isabs(path) else os.path.join(self.root, path)
@@ -115,6 +148,8 @@ class ArchitectureRuntime:
         path_config = config.get("paths", {})
         if not isinstance(path_config, dict):
             raise SystemExit("config: paths must be a table")
+        policy = policy_from_dict(architecture_config.policy_from_config(config))
+        entrypoints_root = path_config.get("entrypoints_root", DEFAULT_ENTRYPOINTS_ROOT)
         return SelfConfig(
             core_root=self.resolve(
                 path_config.get("core_root", DEFAULT_CORE_ROOT)
@@ -122,7 +157,10 @@ class ArchitectureRuntime:
             adapters_root=self.resolve(
                 path_config.get("adapters_root", DEFAULT_ADAPTERS_ROOT)
             ),
-            policy=policy_from_dict(architecture_config.policy_from_config(config)),
+            policy=policy,
+            entrypoints_root=entrypoints_root,
+            excluded_scopes=policy.excluded_scopes,
+            scope_conventions=policy.scope_conventions,
         )
 
     def collect_self_facts(self, config, overrides):
@@ -130,8 +168,26 @@ class ArchitectureRuntime:
         adapters_root = self.resolve(
             overrides.adapters_root or config.adapters_root
         )
-        rust_dir = os.path.join(adapters_root, "rust-extractor")
-        go_dir = os.path.join(adapters_root, "go-extractor")
+        tool_cli = os.path.join(self.tool_root, DEFAULT_ENTRYPOINTS_ROOT)
+        rust_tool_dir = os.path.join(
+            self.tool_root, DEFAULT_ADAPTERS_ROOT, "rust-extractor"
+        )
+        go_tool_dir = os.path.join(
+            self.tool_root, DEFAULT_ADAPTERS_ROOT, "go-extractor"
+        )
+        entrypoints_root = config.entrypoints_root
+        rust_project = bool(
+            glob.glob(os.path.join(self.root, "**", "Cargo.toml"), recursive=True)
+        )
+        go_project = bool(
+            glob.glob(os.path.join(self.root, "**", "*.go"), recursive=True)
+        )
+        rust_scan_root = os.path.join(adapters_root, "rust-extractor")
+        if not os.path.isdir(rust_scan_root):
+            rust_scan_root = adapters_root
+        go_scan_root = os.path.join(adapters_root, "go-extractor")
+        if not os.path.isdir(go_scan_root):
+            go_scan_root = adapters_root
 
         with tempfile.TemporaryDirectory() as directory:
             paths = []
@@ -144,7 +200,7 @@ class ArchitectureRuntime:
             self.run(
                 [
                     "python3",
-                    os.path.join(self.entrypoints_root, "extract_python.py"),
+                    os.path.join(tool_cli, "extract_python.py"),
                     "--root",
                     self.root,
                     "--out",
@@ -154,53 +210,62 @@ class ArchitectureRuntime:
             self.run(
                 [
                     "python3",
-                    os.path.join(self.entrypoints_root, "extract_typescript.py"),
+                    os.path.join(tool_cli, "extract_typescript.py"),
                     "--root",
                     adapters_root,
                     "--out",
                     output_path("typescript"),
                 ]
             )
-            self.run(
-                [
-                    "cargo",
-                    "build",
-                    "--quiet",
-                    "--manifest-path",
-                    os.path.join(rust_dir, "Cargo.toml"),
-                ]
-            )
-            self.run(
-                [
-                    os.path.join(rust_dir, "target", "debug", "rust-extractor"),
-                    "--root",
-                    rust_dir,
-                    "--out",
-                    output_path("rust"),
-                ]
-            )
+            if rust_project and os.path.isfile(os.path.join(rust_tool_dir, "Cargo.toml")):
+                self.run(
+                    [
+                        "cargo",
+                        "build",
+                        "--quiet",
+                        "--manifest-path",
+                        os.path.join(rust_tool_dir, "Cargo.toml"),
+                    ]
+                )
+                self.run(
+                    [
+                        os.path.join(
+                            rust_tool_dir, "target", "debug", "rust-extractor"
+                        ),
+                        "--root",
+                        rust_scan_root,
+                        "--out",
+                        output_path("rust"),
+                    ]
+                )
 
-            go_binary = os.path.join(directory, "go-extractor")
-            self.run(
-                [
-                    "go",
-                    "build",
-                    "-o",
-                    go_binary,
-                    os.path.join(go_dir, "main.go"),
-                ]
-            )
-            self.run(
-                [
-                    go_binary,
-                    "--root",
-                    go_dir,
-                    "--out",
-                    output_path("go"),
-                ]
-            )
+            if go_project and os.path.isfile(os.path.join(go_tool_dir, "main.go")):
+                go_binary = os.path.join(directory, "go-extractor")
+                self.run(
+                    [
+                        "go",
+                        "build",
+                        "-o",
+                        go_binary,
+                        os.path.join(go_tool_dir, "main.go"),
+                    ]
+                )
+                self.run(
+                    [
+                        go_binary,
+                        "--root",
+                        go_scan_root,
+                        "--out",
+                        output_path("go"),
+                    ]
+                )
 
-            return facts_from_dict(merge_facts(paths))
+            contract_data = contract_facts.discover(
+                self.root, config.policy, entrypoints_root
+            )
+            return facts_from_dict(
+                merge_facts(paths, contract_data, config.excluded_scopes)
+            )
 
     def write_facts(self, path, facts):
         parent = os.path.dirname(os.path.abspath(path))
@@ -220,3 +285,127 @@ class ArchitectureRuntime:
 
     def check(self, facts, policy):
         return tuple(check(facts, policy))
+
+    def validate_config(self, path):
+        full = self.resolve(path or DEFAULT_CONFIG)
+        if not os.path.isfile(full):
+            return ()
+        config = architecture_config.load_config(full)
+        return architecture_config.validate_config(config, os.path.dirname(full))
+
+    def verify_lock(self, path, locked):
+        full = self.resolve(path or DEFAULT_CONFIG)
+        return contract_lock.verify_lock(
+            self.root, full, locked, checker_root=self.tool_root
+        )
+
+    def apply_baseline(self, violations):
+        path = contract_lock.baseline_path(self.root)
+        if not os.path.isfile(path):
+            return compare_baseline(violations, ())
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return compare_baseline(violations, data.get("violations", []))
+
+    def update_lock(self, path):
+        contract_lock.write_lock(
+            self.root, self.resolve(path or DEFAULT_CONFIG), checker_root=self.tool_root
+        )
+
+    def accept_baseline(self, path, violations):
+        config_path = self.resolve(path or DEFAULT_CONFIG)
+        baseline = contract_lock.baseline_path(self.root)
+        accepted = []
+        seen = set()
+        for item in violations:
+            data = violation_to_dict(item)
+            key = violation_fingerprint(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            accepted.append(
+                {
+                    "fingerprint": key,
+                    "rule": item.rule,
+                    "location": data.get("location", ""),
+                }
+            )
+        with open(baseline, "w", encoding="utf-8") as handle:
+            json.dump({"version": 1, "violations": accepted}, handle, indent=2)
+            handle.write("\n")
+        self.update_lock(config_path)
+
+    def list_rules(self):
+        return tuple(rules.catalog_data())
+
+    def explain_rule(self, rule_id):
+        spec = rules.rule_spec(rule_id)
+        return asdict(spec) if spec else None
+
+    def scaffold(self, preset, output):
+        data = presets.get_preset(preset)
+        root = os.path.abspath(output)
+        os.makedirs(root, exist_ok=True)
+        for directory in data["directories"]:
+            os.makedirs(os.path.join(root, directory), exist_ok=True)
+
+        lines = [
+            "version = 1",
+            'default_layer = "external"',
+            'default_scope = "external"',
+            "",
+            "[paths]",
+            'core_root = "core"',
+            'adapters_root = "adapters"',
+            'entrypoints_root = "entrypoints"',
+            "",
+            "[scopes.external]",
+            'patterns = ["*"]',
+            "priority = 0",
+            "",
+            "[scopes.test]",
+            'patterns = ["tests/**", "**/*_test.py"]',
+            "priority = 10",
+            "",
+            "[scopes.fixture]",
+            'patterns = ["tests/fixtures/**"]',
+            "priority = 20",
+            "",
+            "[scope_rules]",
+            'excluded_scopes = ["fixture", "test", "example", "generated", "vendor"]',
+            "",
+            "[scope_rules.conventions]",
+            '"tests/fixtures/" = "fixture"',
+            '"tests/" = "test"',
+        ]
+        for index, layer in enumerate(data["layers"]):
+            lines.extend(
+                [
+                    "",
+                    f"[layers.{layer}]",
+                    f"priority = {(index + 1) * 10}",
+                    f"core = {str(layer in {'ports', 'core', 'domain', 'application'}).lower()}",
+                    f'patterns = ["{layer}.*"]',
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                "[layers.external]",
+                "priority = 1000",
+                'patterns = ["*"]',
+                'allowed = ["external"]',
+                "",
+            ]
+        )
+        config_path = os.path.join(root, DEFAULT_CONFIG)
+        with open(config_path, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines))
+
+        baseline_path = contract_lock.baseline_path(root)
+        with open(baseline_path, "w", encoding="utf-8") as handle:
+            json.dump({"version": 1, "violations": []}, handle, indent=2)
+            handle.write("\n")
+        contract_lock.write_lock(
+            root, config_path, checker_root=self.tool_root
+        )

@@ -216,10 +216,20 @@ python3 external/cli/extract_typescript_native.py --root /path/to/project --out 
 python3 external/cli/check_architecture.py rust-facts.json --config architecture.toml
 python3 external/cli/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
 python3 external/cli/check_self.py
+
+
+# Governed project workflow
+python3 external/cli/architecture.py --root /path/to/project check
+python3 external/cli/architecture.py list-rules
+python3 external/cli/architecture.py explain adapter_cli_concern
+python3 external/cli/architecture.py --root /path/to/project update-lock
+python3 external/cli/architecture.py --root /path/to/project accept-baseline
+python3 external/cli/architecture.py init --preset clean --output /path/to/new-project
 ```
 
 The Python extractor libraries are dependency-free. `adapters/python_extractor.py` uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
 Native extractor programs inside `adapters/` are build artifacts invoked by `external/cli` wrappers. `architecture.toml` records them under `[scopes.build_artifact]` and declares the wrapper surfaces under `[[executables]]`; their argv parsing is internal to the artifact, not the repository's public boundary.
+Checks are locked by default. `architecture.toml` is the contract; `architecture.lock` binds its semantic hash, the rule catalog, the checker implementation artifacts, and the baseline hash. `architecture.baseline.json` ratchets existing violations: new violations fail, and removed violations require an explicit acceptance to keep the baseline clean. Use `--no-lock` only for bootstrap and debugging. Contract files are review-protected through `.github/CODEOWNERS`.
 Core logic lives in `architecture_core/`: pure fact types, policy matching, checker rules, ports, and use cases. `adapters/` contains concrete mechanisms that translate source syntax into facts and perform file/process I/O; `adapters/runtime.py` composes those mechanisms behind core ports. `external/cli/` contains executable surfaces only. Dependencies point inward: entrypoints -> adapters -> core; core has no CLI, subprocess, JSON-I/O, or filesystem dependencies.
 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.

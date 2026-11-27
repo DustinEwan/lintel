@@ -4,7 +4,7 @@ Core use cases depend on these interfaces, never on CLI parsers, filesystems,
 subprocesses, or concrete extractors.
 """
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from .model import (
     CheckFactsRequest,
@@ -45,9 +45,32 @@ class CheckerPort(Protocol):
     def check(self, facts: FactSet, policy: Policy) -> tuple[Violation, ...]: ...
 
 
+class ContractPort(Protocol):
+    def validate_config(self, path: str) -> tuple[Violation, ...]: ...
+
+    def verify_lock(self, path: str, locked: bool) -> tuple[Violation, ...]: ...
+
+    def apply_baseline(
+        self, violations: tuple[Violation, ...]
+    ) -> tuple[Violation, ...]: ...
+
+    def list_rules(self) -> tuple[dict[str, Any], ...]: ...
+
+    def explain_rule(self, rule_id: str) -> dict[str, Any] | None: ...
+
+    def update_lock(self, path: str) -> None: ...
+
+    def accept_baseline(
+        self, path: str, violations: tuple[Violation, ...]
+    ) -> None: ...
+
+    def scaffold(self, preset: str, output: str) -> None: ...
+
+
 __all__ = [
     "SelfCheckRequest",
     "CheckerPort",
+    "ContractPort",
     "FactCollectionPort",
     "FactSinkPort",
     "FactSourcePort",

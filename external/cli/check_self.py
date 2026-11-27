@@ -23,6 +23,8 @@ def main():
     parser.add_argument("--core-root", help="core source root")
     parser.add_argument("--adapters-root", help="adapter source root")
     parser.add_argument("--out", help="write merged facts to this path")
+    parser.add_argument("--locked", dest="locked", action="store_true", default=True)
+    parser.add_argument("--no-lock", dest="locked", action="store_false")
     args = parser.parse_args()
 
     runtime = ArchitectureRuntime(ROOT)
@@ -33,8 +35,9 @@ def main():
             core_root=args.core_root, adapters_root=args.adapters_root
         ),
         out=args.out,
+        locked=args.locked,
     )
-    result = run_self_check(runtime, runtime, runtime, runtime, request)
+    result = run_self_check(runtime, runtime, runtime, runtime, runtime, request)
     violations = [violation_to_dict(item) for item in result.violations]
     if violations:
         print(json.dumps(violations, indent=2))

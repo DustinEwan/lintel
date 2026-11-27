@@ -24,15 +24,20 @@ def main():
     source.add_argument("--config", help="TOML architecture configuration")
     source.add_argument("--policy", help="JSON architecture policy")
     parser.add_argument("--json", action="store_true", help="emit JSON violations")
+    parser.add_argument("--locked", dest="locked", action="store_true", default=True)
+    parser.add_argument("--no-lock", dest="locked", action="store_false")
     args = parser.parse_args()
 
     runtime = ArchitectureRuntime(ROOT)
     request = CheckFactsRequest(
-        facts_path=args.facts, config_path=args.config, policy_path=args.policy
+        facts_path=args.facts,
+        config_path=args.config,
+        policy_path=args.policy,
+        locked=args.locked,
     )
     violations = [
         violation_to_dict(item)
-        for item in run_check_facts(runtime, runtime, runtime, request)
+        for item in run_check_facts(runtime, runtime, runtime, runtime, request)
     ]
 
     if args.json:

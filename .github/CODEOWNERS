@@ -1,0 +1,4 @@
+/architecture.toml @architecture-owners
+/architecture.lock @architecture-owners
+/architecture.baseline.json @architecture-owners
+/PLAN.md @architecture-owners

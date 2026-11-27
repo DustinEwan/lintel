@@ -7,20 +7,94 @@ core_root = "architecture_core"
 adapters_root = "adapters"
 entrypoints_root = "external/cli"
 
+[scopes.external]
+patterns = ["*"]
+priority = 0
+
 [scopes.test]
 patterns = ["tests/**", "**/*_test.py", "**/*.test.ts"]
-
-[scopes.example]
-patterns = ["examples/**"]
+priority = 10
 
 [scopes.fixture]
 patterns = ["tests/fixtures/**"]
+priority = 20
+
+[scopes.example]
+patterns = ["examples/**"]
+priority = 10
 
 [scopes.build_artifact]
 patterns = [
   "adapters/extract_typescript_native.mjs",
   "adapters/go-extractor/main.go",
   "adapters/rust-extractor/src/main.rs"
+]
+priority = 30
+
+[scope_rules]
+excluded_scopes = ["fixture", "test", "example", "generated", "vendor"]
+forbidden_edges = []
+
+[scope_rules.conventions]
+"tests/fixtures/" = "fixture"
+"tests/" = "test"
+"examples/" = "example"
+
+[boundary_concerns.entrypoint_only]
+patterns = [
+  "argparse",
+  "typer",
+  "click",
+  "sys.argv",
+  "sys.exit",
+  "os._exit",
+  "flag.Parse",
+  "std::env::args",
+  "std::process::exit",
+  "process.argv",
+  "process.exit"
+]
+
+[boundary_concerns.mechanism]
+patterns = [
+  "os.environ",
+  "logging",
+  "print",
+  "os.Getenv",
+  "std::env::var",
+  "process.env",
+  "fmt.Print",
+  "println!",
+  "SystemExit",
+  "console.log"
+]
+allowed_regions = ["adapters", "infrastructure", "entrypoints", "external"]
+
+[wrapper_rules]
+allowed_imports = [
+  "argparse",
+  "json",
+  "os",
+  "sys",
+  "subprocess",
+  "tempfile",
+  "adapters.*",
+  "architecture_core.model*",
+  "architecture_core.use_cases.*"
+]
+forbidden_imports = [
+  "architecture_core.checker",
+  "architecture_core.rules",
+  "architecture_core.ratchet"
+]
+allowed_commands = ["cargo", "go", "node", "python3"]
+
+[use_cases]
+allowed_imports = [
+  "architecture_core.ports*",
+  "architecture_core.model*",
+  "typing*",
+  "dataclasses*"
 ]
 
 [layers.ports]
@@ -29,6 +103,9 @@ core = true
 patterns = [
   "architecture_core.model*",
   "architecture_core.ports*",
+  "architecture_core.rules*",
+  "architecture_core.ratchet*",
+  "architecture_core.presets*",
   "Architecture.Port*",
   "Architecture.CapabilityPort*",
   "Architecture.TypedCapabilityPort*",
@@ -100,7 +177,7 @@ patterns = [
   "os/exec",
   "path/filepath",
   "pathlib",
-  "posixpath",
+  "posixpath*",
   "random",
   "re",
   "shutil",
@@ -123,6 +200,7 @@ priority = 40
 core = false
 patterns = [
   "external.cli.*",
+  "architecture",
   "check_architecture",
   "check_self",
   "extract_python",
@@ -139,7 +217,11 @@ patterns = [
   "adapters.runtime",
   "adapters.architecture_config",
   "adapters.extract_common",
+  "adapters.contract_facts",
+  "adapters.contract_lock",
   "architecture_config",
+  "contract_facts",
+  "contract_lock",
   "extract_common"
 ]
 allowed = ["ports", "core", "platform", "infrastructure", "external"]
@@ -156,6 +238,17 @@ patterns = [
   "architecture-extractors/go-extractor"
 ]
 allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
+
+[layers.external]
+priority = 1000
+core = false
+patterns = ["*"]
+allowed = ["external"]
+
+[[executables]]
+name = "architecture"
+path = "external/cli/architecture.py"
+owner = "entrypoints"
 
 [[executables]]
 name = "check_self"
@@ -201,3 +294,15 @@ owner = "entrypoints"
 name = "extract_typescript_native"
 path = "external/cli/extract_typescript_native.py"
 owner = "entrypoints"
+
+[[build_artifacts]]
+source = "adapters/rust-extractor/src/main.rs"
+wrapper = "extract_rust_native"
+
+[[build_artifacts]]
+source = "adapters/go-extractor/main.go"
+wrapper = "extract_go_native"
+
+[[build_artifacts]]
+source = "adapters/extract_typescript_native.mjs"
+wrapper = "extract_typescript_native"
