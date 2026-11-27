@@ -1,0 +1,6 @@
+version = 1
+
+[dogfood]
+core_root = "architecture_core"
+adapters_root = "adapters"
+policy = "adapters/self_policy.json"

@@ -206,7 +206,18 @@ Core logic lives in `architecture_core/`: pure fact types, policy matching, and 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
 
 Dogfooding: `python3 adapters/check_self.py` extracts `architecture_core/` and `adapters/` as separate import roots, merges facts from all extractors, and checks them against `adapters/self_policy.json`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
-Directory names are conventions, not architecture. Use `--adapters-root drivers` and `--core-root domain` to retarget extraction; region names and patterns in the policy are independent of folder names, so modules under `drivers/` can still belong to the `adapters` region.
+Dogfood configuration lives in `architecture.toml` at the repo root:
+
+```toml
+version = 1
+
+[dogfood]
+core_root = "architecture_core"
+adapters_root = "adapters"
+policy = "adapters/self_policy.json"
+```
+
+CLI flags override these values. To keep adapters in `drivers/`, change `adapters_root` and `policy`, then run `python3 drivers/check_self.py` with no arguments. Region names and patterns in the policy are independent of folder names, so modules under `drivers/` can still belong to the `adapters` region.
 
 Limits:
 

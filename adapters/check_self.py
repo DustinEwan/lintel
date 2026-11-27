@@ -7,10 +7,12 @@ import os
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_CORE_ROOT = "architecture_core"
 DEFAULT_ADAPTERS_ROOT = "adapters"
+DEFAULT_CONFIG = "architecture.toml"
 EXCLUDED_PREFIX = "tests/fixtures/"
 
 
@@ -25,6 +27,32 @@ def run(command):
 
 def excluded(source):
     return source.startswith(EXCLUDED_PREFIX)
+
+
+def resolve_path(path):
+    return path if os.path.isabs(path) else os.path.join(ROOT, path)
+
+
+def relative_prefix(path):
+    relative = os.path.relpath(path, ROOT).replace(os.sep, "/")
+    return "" if relative == "." else relative.rstrip("/") + "/"
+
+
+def load_config(path, required):
+    full = resolve_path(path)
+    if not os.path.isfile(full):
+        if required:
+            raise SystemExit(f"config not found: {full}")
+        return {}
+    with open(full, "rb") as handle:
+        try:
+            data = tomllib.load(handle)
+        except tomllib.TOMLDecodeError as error:
+            raise SystemExit(f"invalid config {full}: {error}")
+    config = data.get("dogfood", {})
+    if not isinstance(config, dict):
+        raise SystemExit(f"config {full}: dogfood must be a table")
+    return config
 
 
 def merge_facts(paths):
@@ -80,16 +108,26 @@ def merge_facts(paths):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--core-root", default=DEFAULT_CORE_ROOT, help="core source root")
-    parser.add_argument(
-        "--adapters-root", default=DEFAULT_ADAPTERS_ROOT, help="adapter source root"
-    )
+    parser.add_argument("--config", help="TOML config path")
+    parser.add_argument("--core-root", help="core source root")
+    parser.add_argument("--adapters-root", help="adapter source root")
     parser.add_argument("--policy", help="architecture policy JSON")
     parser.add_argument("--out", help="write merged facts to this path")
     args = parser.parse_args()
 
-    policy = args.policy or os.path.join(args.adapters_root, "self_policy.json")
-    core_prefix = args.core_root.strip("/") + "/"
+    config = load_config(args.config or DEFAULT_CONFIG, args.config is not None)
+    core_root = resolve_path(
+        args.core_root or config.get("core_root", DEFAULT_CORE_ROOT)
+    )
+    adapters_root = resolve_path(
+        args.adapters_root or config.get("adapters_root", DEFAULT_ADAPTERS_ROOT)
+    )
+    policy = resolve_path(
+        args.policy
+        or config.get("policy")
+        or os.path.join(adapters_root, "self_policy.json")
+    )
+    core_prefix = relative_prefix(core_root)
 
     with tempfile.TemporaryDirectory() as directory:
         paths = []
@@ -99,19 +137,19 @@ def main():
             paths.append((path, include_prefix))
             return path
 
-        python_extractor = os.path.join(args.adapters_root, "extract_python.py")
+        python_extractor = os.path.join(adapters_root, "extract_python.py")
         typescript_extractor = os.path.join(
-            args.adapters_root, "extract_typescript.py"
+            adapters_root, "extract_typescript.py"
         )
-        rust_dir = os.path.join(args.adapters_root, "rust-extractor")
-        go_dir = os.path.join(args.adapters_root, "go-extractor")
+        rust_dir = os.path.join(adapters_root, "rust-extractor")
+        go_dir = os.path.join(adapters_root, "go-extractor")
 
         run(
             [
                 sys.executable,
                 python_extractor,
                 "--root",
-                args.adapters_root,
+                adapters_root,
                 "--out",
                 output_path("python"),
             ]
@@ -131,7 +169,7 @@ def main():
                 sys.executable,
                 typescript_extractor,
                 "--root",
-                args.adapters_root,
+                adapters_root,
                 "--out",
                 output_path("typescript"),
             ]
@@ -193,7 +231,7 @@ def main():
         result = subprocess.run(
             [
                 sys.executable,
-                os.path.join(args.adapters_root, "check_architecture.py"),
+                os.path.join(adapters_root, "check_architecture.py"),
                 facts_path,
                 "--policy",
                 policy,
