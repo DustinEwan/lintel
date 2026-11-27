@@ -20,6 +20,7 @@ python -m pip install .
 | Check with JSON output | `lintel check --format json` |
 | Write merged facts | `lintel check --out facts.json` |
 | Recheck a facts file | `lintel check facts.json --config lintel.toml` |
+| Generate from saved facts | `lintel generate-lean --facts facts.json` |
 | List rules | `lintel list-rules` |
 | Explain a rule | `lintel explain adapter_cli_concern` |
 | Relock after a contract change | `lintel update-lock` |
