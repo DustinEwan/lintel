@@ -347,6 +347,18 @@ class ScaffoldTests(unittest.TestCase):
                 ignored = handle.read().splitlines()
             self.assertEqual(ignored.count("architecture.cache.json"), 1)
 
+    def test_scaffold_preserves_existing_gitignore(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ignore = os.path.join(directory, ".gitignore")
+            with open(ignore, "w", encoding="utf-8") as handle:
+                handle.write("node_modules/")
+            ArchitectureRuntime(directory).scaffold("clean", directory)
+            with open(ignore, "r", encoding="utf-8") as handle:
+                ignored = handle.read().splitlines()
+            self.assertEqual(
+                ignored, ["node_modules/", "architecture.cache.json"]
+            )
+
 
 
 
