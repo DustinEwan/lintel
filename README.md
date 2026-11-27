@@ -192,23 +192,24 @@ python3 tools/extract_rust.py --root /path/to/project --out rust-facts.json
 cargo run --manifest-path rust-extractor/Cargo.toml -- --root /path/to/project --out rust-native-facts.json
 python3 tools/extract_go.py --root /path/to/project --out go-facts.json
 python3 tools/extract_typescript.py --root /path/to/project --out ts-facts.json
+go run ./go-extractor/main.go --root /path/to/project --out go-native-facts.json
 npm install
 node tools/extract_typescript_native.mjs --root /path/to/project --out ts-native-facts.json
 python3 tools/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
 ```
 
-The Python extractors are dependency-free. `tools/extract_typescript_native.mjs` uses the TypeScript compiler API; `rust-extractor` uses `cargo metadata` plus `syn`. These native extractors are preferred when their toolchains are available in CI.
+The Python extractors are dependency-free. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `tools/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
 
 Limits:
 
-- Static source scanning only: no reflection, macro expansion, generated code, or runtime dependency injection.
-- Rust `use` items are resolved to the nearest known local module; `pub use`, `pub(crate) use`, `pub(super) use`, `pub(in path) use`, and `extern crate` are included. Unrecognized visibility forms are reported as unparsed, as are `include!`, `#[path]`, and `macro_rules!`. The native extractor parses Rust ASTs with `syn` and reads the package name from `cargo metadata`.
-- Go imports come from source files, not `go list`; `vendor/` is skipped. Build-tagged files are reported as unparsed.
+- Python extractors are static source scanners; native extractors use language toolchains. Reflection, generated code, and runtime dependency injection remain out of scope.
+- Rust `use` items are resolved to the nearest known local module; `pub use`, `pub(crate) use`, `pub(super) use`, `pub(in path) use`, and `extern crate` are included. Unrecognized visibility forms are reported as unparsed, as are `include!`, `#[path]`, and `macro_rules!`. The native extractor parses Rust ASTs with `syn`, reads the package name from `cargo metadata`, and reports workspace roots as unparsed instead of attributing all members to the first package.
+- The Python Go scanner parses import declarations from source. `go-extractor` uses `go list -json` plus `go/parser` for package paths and import positions. Build-tagged and unparseable files are reported as unparsed.
 - The Python TypeScript scanner handles single-line static imports/exports, `require()`, and `import()` including import attributes; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.
 - `tools/extract_typescript_native.mjs` parses TypeScript ASTs, honors `tsconfig.json`, resolves relative imports, and covers multi-line imports, type-only imports, re-exports, `import type`, dynamic imports with import attributes, and non-literal dynamic dependencies. Parse errors, unresolved relative specifiers, and unsupported extra dynamic arguments are reported as unparsed.
-- Rust and Go remain dependency-free source scanners; `cargo metadata` plus a Rust AST and `go list -json` would be more precise but require toolchain dependencies in CI.
+- Python scanners remain available when language toolchains are not installed; native extractors require Rust, Go 1.22+, and TypeScript/Node toolchains respectively.
 - The checker is a decidable approximation of the formal predicates, not a Lean proof that a concrete codebase complies.
 
 The fixtures under `tests/fixtures/` contain deliberate violations and are useful for smoke-testing the pipeline.

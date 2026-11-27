@@ -41,6 +41,8 @@ struct UnparsedFact {
 
 #[derive(Deserialize)]
 struct CargoMetadata {
+    #[serde(default)]
+    workspace_members: Vec<String>,
     packages: Vec<CargoPackage>,
 }
 
@@ -151,8 +153,16 @@ fn crate_name(root: &Path, unparsed: &mut Vec<UnparsedFact>) -> String {
         .iter()
         .find(|package| {
             fs::canonicalize(&package.manifest_path).ok() == canonical_manifest
-        })
-        .or_else(|| metadata.packages.first());
+        });
+
+    if metadata.workspace_members.len() > 1 || package.is_none() {
+        unparsed.push(UnparsedFact {
+            source: "Cargo.toml".to_string(),
+            line: 1,
+            reason: "workspace roots require per-package extraction".to_string(),
+        });
+        return fallback;
+    }
 
     package
         .map(|package| package.name.replace('-', "_"))
