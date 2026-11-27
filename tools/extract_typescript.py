@@ -19,6 +19,10 @@ IMPORT_START_RE = re.compile(r"^\s*import\b")
 EXPORT_FROM_RE = re.compile(r"^\s*export\b")
 
 def strip_extension(path):
+    if path.endswith(".d.ts"):
+        return path[: -len(".d.ts")]
+    if path.endswith((".d.mts", ".d.cts")):
+        return path[: -len(path[-6:])]
     for suffix in sorted(SUFFIXES, key=len, reverse=True):
         if path.endswith(suffix):
             return path[: -len(suffix)]

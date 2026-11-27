@@ -1,0 +1,12 @@
+{
+  "name": "architecture-extractors",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native TypeScript extractor for architecture dependency facts",
+  "scripts": {
+    "extract:ts": "node tools/extract_typescript_native.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
