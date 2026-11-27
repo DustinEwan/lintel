@@ -4,7 +4,7 @@ This is the status catalog for Lintel's known limits. It is not the place to def
 
 - Exception mechanisms live in [ESCAPE_HATCHES.md](../ESCAPE_HATCHES.md).
 - Ambiguity scenarios live in [SEMANTIC_SCENARIOS.md](../SEMANTIC_SCENARIOS.md).
-- Formal-model claims live in the `Formal Lean spec` section of [README.md](../README.md).
+- Formal-model claims live in [docs/formal-spec.md](formal-spec.md), summarized in [README.md](../README.md).
 - Implementable extractor gaps are candidates for GitHub issues. Trust boundaries and intentional ambiguity cases are not.
 
 ## 1. Already mitigated
