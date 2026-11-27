@@ -63,6 +63,57 @@ theorem adapter_unreachable_from_core (A : Architecture) (p : Port A)
     ¬ Path A.dep c adapter.module :=
   core_cannot_reach_outer A hc adapter.outer
 
+/-- An inner architecture embedded as modules of an outer architecture. -/
+structure NestedArchitecture where
+  outer : Architecture
+  inner : Architecture
+  embed : inner.Module → outer.Module
+  embed_core : ∀ m : inner.Module, inner.Core m → outer.Core (embed m)
+  embed_dep : ∀ {a b : inner.Module}, inner.dep a b → outer.dep (embed a) (embed b)
+
+/-- A direct inner-core dependency maps into the outer core. -/
+theorem nested_core_image_closed (N : NestedArchitecture) {a b : N.inner.Module}
+    (ha : N.inner.Core a) (h : N.inner.dep a b) : N.outer.Core (N.embed b) :=
+  N.embed_core b (N.inner.core_closed ha h)
+
+/-- A path from an inner core module maps into the outer core. -/
+theorem nested_core_path_stays_core (N : NestedArchitecture) {a b : N.inner.Module}
+    (ha : N.inner.Core a) (h : Path N.inner.dep a b) : N.outer.Core (N.embed b) := by
+  induction h with
+  | step hdep =>
+      exact nested_core_image_closed N ha hdep
+  | trans hp hd ih =>
+      exact N.outer.core_closed ih (N.embed_dep hd)
+
+/-- A path from an inner core module cannot land outside the outer core. -/
+theorem nested_core_cannot_reach_outer (N : NestedArchitecture) {a b : N.inner.Module}
+    (ha : N.inner.Core a) (hout : ¬ N.outer.Core (N.embed b)) :
+    ¬ Path N.inner.dep a b := by
+  intro h
+  exact hout (nested_core_path_stays_core N ha h)
+
+/-- Inner dependency paths embed as outer dependency paths. -/
+theorem embedded_path (N : NestedArchitecture) {a b : N.inner.Module}
+    (h : Path N.inner.dep a b) : Path N.outer.dep (N.embed a) (N.embed b) := by
+  induction h with
+  | step hdep =>
+      exact Path.step (N.embed_dep hdep)
+  | trans hp hd ih =>
+      exact Path.trans ih (N.embed_dep hd)
+
+/-- Runtime call from core to an outer adapter through a core-owned port. -/
+structure InvertedCall (A : Architecture) (p : Port A) (adapter : Adapter A p) where
+  caller : A.Module
+  core_caller : A.Core caller
+  calls_through_port : A.dep caller p.contract
+
+/-- An inverted call does not create a source dependency from core to adapter. -/
+theorem inverted_call_avoids_adapter (A : Architecture) (p : Port A)
+    (adapter : Adapter A p) (call : InvertedCall A p adapter) :
+    ¬ A.dep call.caller adapter.module := by
+  intro hdep
+  exact adapter.outer (A.core_closed call.core_caller hdep)
+
 /-- A weak order for layers outside the core. -/
 structure RegionOrder (ρ : Type u) where
   le : ρ → ρ → Prop
@@ -204,6 +255,13 @@ theorem capability_adapter_substitution {A : Architecture} {C : Capability}
     (h : equivalent a.implementation b.implementation) :
     program a.implementation = program b.implementation :=
   substitution program h
+
+/-- If a mock is equivalent to production, a passing core test transfers. -/
+theorem test_transfers {C : Capability} {R : Type w} (program : Program C R)
+    (expected : R) (mock production : Implementation C)
+    (h : equivalent mock production)
+    (test : program mock = expected) : program production = expected := by
+  rw [← substitution program h, test]
 
 /-!
 ## Concrete finite instance

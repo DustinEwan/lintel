@@ -139,9 +139,15 @@ Proven properties:
 - `strict_region_path`: every dependency path in a strict layered architecture moves inward.
 - `strict_acyclic`: a strictly layered dependency graph is acyclic.
 - `capability_adapter_substitution`: equivalent adapters for the same capability port are substitutable.
+- `nested_core_image_closed`: a direct inner-core dependency maps into the outer core.
+- `nested_core_path_stays_core`: a path from an inner core module maps into the outer core.
+- `nested_core_cannot_reach_outer`: an inner core path cannot land outside the outer core.
+- `embedded_path`: inner dependency paths embed as outer dependency paths.
+- `inverted_call_avoids_adapter`: runtime calls through a port do not create core-to-adapter source dependencies.
+- `test_transfers`: a passing core test with a mock transfers to an equivalent production implementation.
 - Concrete `demoArchitecture`: an application module cannot reach a Postgres adapter, and `demo_acyclic` proves the example graph has no dependency cycle.
 
-The spec also defines `Port`, `Adapter`, `CapabilityPort`, `CapabilityAdapter`, `RegionOrder`, `EdgePolicy`, `PolicyArchitecture`, `StrictLayeredArchitecture`, and `Capability` to connect the dependency model with boundary contracts and substitutability.
+The spec also defines `Port`, `Adapter`, `CapabilityPort`, `CapabilityAdapter`, `RegionOrder`, `EdgePolicy`, `PolicyArchitecture`, `StrictLayeredArchitecture`, `NestedArchitecture`, `InvertedCall`, and `Capability` to connect the dependency model with boundary contracts, composition, dependency inversion, and substitutability.
 
 Acyclicity is scoped to dependency graphs extracted below the package or project-reference level. Cargo rejects ordinary package dependency cycles and TypeScript project references reject reference cycles; the remaining practical gaps are module-level cycles inside a crate/project and dev/test-only edges.
 
