@@ -22,7 +22,6 @@ function describe(result, event) {
 }
 
 export default function lintelHooks(pi) {
-
   async function runHook(name, cwd) {
     const result = await pi.exec("lintel", ["hook", name], { cwd });
     let payload;
