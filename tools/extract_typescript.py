@@ -14,7 +14,9 @@ IMPORT_FROM_RE = re.compile(
 )
 DYNAMIC_RE = re.compile(r'\bimport\s*\(\s*["\']([^"\']+)["\']\s*\)')
 REQUIRE_RE = re.compile(r'\brequire\s*\(\s*["\']([^"\']+)["\']\s*\)')
-
+DYNAMIC_CALL_RE = re.compile(r"\b(?:import|require)\s*\(([^)]*)\)")
+IMPORT_START_RE = re.compile(r"^\s*import\b")
+EXPORT_FROM_RE = re.compile(r"^\s*export\b")
 
 def strip_extension(path):
     for suffix in sorted(SUFFIXES, key=len, reverse=True):
@@ -44,6 +46,7 @@ def extract(root):
     modules = sorted(set(module_by_file.values()))
 
     dependencies = []
+    unparsed = []
     for path in files:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
@@ -55,6 +58,30 @@ def extract(root):
             specs = []
             for pattern in (IMPORT_FROM_RE, DYNAMIC_RE, REQUIRE_RE):
                 specs.extend(match.group(1) for match in pattern.finditer(code))
+            if not specs and (
+                (IMPORT_START_RE.match(code) and ("{" in code or "*" in code))
+                or (
+                    EXPORT_FROM_RE.match(code)
+                    and (" from " in code or re.search(r"\bexport\s+\*", code))
+                )
+            ):
+                unparsed.append(
+                    {
+                        "source": source,
+                        "line": line_number,
+                        "reason": "unterminated or unsupported import/export",
+                    }
+                )
+            for match in DYNAMIC_CALL_RE.finditer(code):
+                argument = match.group(1).strip()
+                if argument and not argument.startswith(("'", '"')):
+                    unparsed.append(
+                        {
+                            "source": source,
+                            "line": line_number,
+                            "reason": "dynamic dependency with non-literal specifier",
+                        }
+                    )
             for specifier in specs:
                 target = resolve(specifier, current, source)
                 if target and target != current and (target, line_number) not in seen:
@@ -77,6 +104,7 @@ def extract(root):
             for path, name in sorted(module_by_file.items(), key=lambda item: item[1])
         ],
         "dependencies": dependencies,
+        "unparsed": unparsed,
     }
 
 

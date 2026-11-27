@@ -8,7 +8,14 @@ import tomllib
 
 from extract_common import iter_files, rel, write_json
 
-USE_RE = re.compile(r"(?m)^\s*use\s+([^;]+);")
+USE_RE = re.compile(r"(?m)^\s*(?:pub\s+)?use\s+([^;]+);")
+USE_START_RE = re.compile(r"(?m)^\s*(?:pub\s+)?use\b")
+EXTERN_CRATE_RE = re.compile(r"(?m)^\s*extern\s+crate\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
+UNSUPPORTED_RUST = [
+    (re.compile(r"\binclude!\s*\("), "include! can inject dependencies"),
+    (re.compile(r"#\s*\[\s*path\s*="), "#[path] changes module paths"),
+    (re.compile(r"\bmacro_rules!\s*"), "macro_rules! can generate imports"),
+]
 
 
 def crate_name(root):
@@ -102,10 +109,41 @@ def extract(root):
     }
 
     dependencies = []
+    unparsed = []
     for path in files:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
         current = module_by_file[path]
+        source = rel(path, root)
+        matched_uses = {match.start() for match in USE_RE.finditer(text)}
+        for match in USE_START_RE.finditer(text):
+            if match.start() not in matched_uses:
+                unparsed.append(
+                    {
+                        "source": source,
+                        "line": text.count("\n", 0, match.start()) + 1,
+                        "reason": "unterminated or unsupported use statement",
+                    }
+                )
+        for pattern, reason in UNSUPPORTED_RUST:
+            for match in pattern.finditer(text):
+                unparsed.append(
+                    {
+                        "source": source,
+                        "line": text.count("\n", 0, match.start()) + 1,
+                        "reason": reason,
+                    }
+                )
+        for match in EXTERN_CRATE_RE.finditer(text):
+            dependencies.append(
+                {
+                    "from": current,
+                    "to": match.group(1),
+                    "kind": "extern_crate",
+                    "source": source,
+                    "line": text.count("\n", 0, match.start()) + 1,
+                }
+            )
         for match in USE_RE.finditer(text):
             line = text.count("\n", 0, match.start()) + 1
             for use_path in split_use_paths(match.group(1)):
@@ -116,8 +154,8 @@ def extract(root):
                             "from": current,
                             "to": target,
                             "kind": "use",
-                            "source": rel(path, root),
-                            "line": line,
+                            "source": source,
+                            "line": text.count("\n", 0, match.start()) + 1,
                         }
                     )
 
@@ -129,6 +167,7 @@ def extract(root):
             for path, name in sorted(module_by_file.items(), key=lambda item: item[1])
         ],
         "dependencies": dependencies,
+        "unparsed": unparsed,
     }
 
 

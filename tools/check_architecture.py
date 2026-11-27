@@ -127,8 +127,20 @@ def find_cycles(facts):
     ]
 
 
+def check_unparsed(facts):
+    return [
+        make_violation(
+            "unparsed_source",
+            "unparsed source: "
+            + str(item.get("reason", "unsupported syntax"))
+            + f" ({item.get('source', '?')}:{item.get('line', '?')})",
+            **item,
+        )
+        for item in facts.get("unparsed", [])
+    ]
+
 def check(facts, policy):
-    return check_edges(facts, policy) + find_cycles(facts)
+    return check_edges(facts, policy) + find_cycles(facts) + check_unparsed(facts)
 
 
 def main():
