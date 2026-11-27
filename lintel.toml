@@ -101,7 +101,8 @@ forbidden = [
   "lintel.adapters.extract_common",
   "extract_*",
   "rust_extractor",
-  "lintel/go-extractor"
+  "lintel/go-extractor",
+  "lintel.adapters.runtime"
 ]
 
 [layers.core]
@@ -118,7 +119,8 @@ forbidden = [
   "lintel.adapters.extract_common",
   "extract_*",
   "rust_extractor",
-  "lintel/go-extractor"
+  "lintel/go-extractor",
+  "lintel.adapters.runtime"
 ]
 
 [layers.platform]
