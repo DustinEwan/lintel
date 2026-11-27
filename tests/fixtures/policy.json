@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "default_region": "external",
+  "regions": [
+    {
+      "name": "domain",
+      "core": true,
+      "patterns": [
+        "*::domain*",
+        "example.com/app/internal/domain*",
+        "src/domain/*"
+      ]
+    },
+    {
+      "name": "application",
+      "core": true,
+      "patterns": [
+        "*::app*",
+        "example.com/app/internal/app*",
+        "src/app/*"
+      ]
+    },
+    {
+      "name": "adapters",
+      "core": false,
+      "patterns": [
+        "*::adapters*",
+        "example.com/app/internal/adapters*",
+        "src/infra/*"
+      ]
+    },
+    {
+      "name": "external",
+      "core": false,
+      "patterns": []
+    }
+  ],
+  "allowed": {
+    "domain": ["domain"],
+    "application": ["domain", "application"],
+    "adapters": ["domain", "application", "adapters", "external"],
+    "external": ["external"]
+  },
+  "forbidden": {
+    "core": ["sqlx", "net/http", "src/infra/*", "express", "fs", "path"]
+  }
+}

@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Extract Rust module dependencies as architecture facts."""
+
+import argparse
+import os
+import re
+import tomllib
+
+from extract_common import iter_files, rel, write_json
+
+USE_RE = re.compile(r"(?m)^\s*use\s+([^;]+);")
+
+
+def crate_name(root):
+    cargo = os.path.join(root, "Cargo.toml")
+    if os.path.exists(cargo):
+        with open(cargo, "rb") as f:
+            data = tomllib.load(f)
+        return data.get("package", {}).get("name", os.path.basename(root))
+    return os.path.basename(root)
+
+
+def module_name(path, root, crate):
+    relative = rel(path, root)
+    if relative.startswith("src/"):
+        relative = relative[4:]
+        if relative in ("lib.rs", "main.rs"):
+            parts = []
+        else:
+            if relative.endswith("/mod.rs"):
+                relative = relative[: -len("/mod.rs")]
+            elif relative.endswith(".rs"):
+                relative = relative[: -len(".rs")]
+            parts = [p for p in relative.split("/") if p]
+    else:
+        relative = relative[: -len(".rs")] if relative.endswith(".rs") else relative
+        parts = [p for p in relative.split("/") if p]
+    return "::".join([crate] + parts) if parts else crate
+
+
+def split_use_paths(text):
+    text = text.strip()
+    if text.startswith("::"):
+        text = text[2:]
+    if "{" in text:
+        prefix, rest = text.split("{", 1)
+        inner = rest.rsplit("}", 1)[0] if "}" in rest else rest
+        prefix = prefix.strip().rstrip(":")
+        paths = []
+        for item in inner.split(","):
+            item = item.strip()
+            if not item or item == "self":
+                continue
+            item = item.split(" as ", 1)[0].strip()
+            paths.append(f"{prefix}::{item}" if prefix else item)
+        if prefix:
+            paths.append(prefix)
+        return paths
+    path = text.split(" as ", 1)[0].strip()
+    return [path.rstrip("*").rstrip(":")] if path else []
+
+
+def resolve(path, current, crate, modules, local_top):
+    path = path.strip().lstrip(":")
+    if not path:
+        return None
+    parts = path.split("::")
+
+    if parts[0] == "crate":
+        candidate = "::".join([crate] + parts[1:])
+    elif parts[0] == "self":
+        candidate = current
+        if len(parts) > 1:
+            candidate += "::" + "::".join(parts[1:])
+    elif parts[0] == "super":
+        base = current.split("::")[:-1]
+        index = 0
+        while index < len(parts) and parts[index] == "super":
+            if base:
+                base.pop()
+            index += 1
+        candidate = "::".join(base + parts[index:]) or crate
+    elif parts[0] in local_top:
+        candidate = "::".join([crate] + parts)
+    else:
+        return parts[0]
+
+    while candidate not in modules and "::" in candidate:
+        candidate = candidate.rsplit("::", 1)[0]
+    return candidate
+
+
+def extract(root):
+    crate = crate_name(root)
+    files = list(iter_files(root, (".rs",)))
+    module_by_file = {path: module_name(path, root, crate) for path in files}
+    modules = sorted(set(module_by_file.values()))
+    local_top = {
+        name.split("::")[1]
+        for name in modules
+        if name.startswith(crate + "::") and len(name.split("::")) > 1
+    }
+
+    dependencies = []
+    for path in files:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        current = module_by_file[path]
+        for match in USE_RE.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            for use_path in split_use_paths(match.group(1)):
+                target = resolve(use_path, current, crate, set(modules), local_top)
+                if target and target != current:
+                    dependencies.append(
+                        {
+                            "from": current,
+                            "to": target,
+                            "kind": "use",
+                            "source": rel(path, root),
+                            "line": line,
+                        }
+                    )
+
+    return {
+        "version": 1,
+        "language": "rust",
+        "modules": [
+            {"name": name, "path": rel(path, root)}
+            for path, name in sorted(module_by_file.items(), key=lambda item: item[1])
+        ],
+        "dependencies": dependencies,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", default=".", help="project root to scan")
+    parser.add_argument("--out", required=True, help="output JSON facts path")
+    args = parser.parse_args()
+    write_json(args.out, extract(os.path.abspath(args.root)))
+
+
+if __name__ == "__main__":
+    main()

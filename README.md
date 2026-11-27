@@ -158,7 +158,7 @@ The spec also defines `Port`, `Adapter`, `CapabilityPort`, `CapabilityAdapter`, 
 
 Acyclicity is scoped to dependency graphs extracted below the package or project-reference level. Cargo rejects ordinary package dependency cycles and TypeScript project references reject reference cycles; the remaining practical gaps are module-level cycles inside a crate/project and dev/test-only edges.
 
-This verifies the **formal model**, not that an arbitrary codebase satisfies it. Applying the spec to real code requires a language-specific extractor that produces `Module` and `dep` facts from imports, calls, or package dependencies.
+This verifies the **formal model**. The Python tools in `tools/` bridge real source code to that model: extractors emit `Module` and `dep` facts, and the checker enforces the same core-closure and acyclicity rules in decidable form.
 
 Toolchain: Lean 4.36.0, pinned in `lean-toolchain`.
 
@@ -168,3 +168,38 @@ Verify with:
 source "$HOME/.elan/env"
 lake build
 ```
+
+## Extractors and checker
+
+`tools/extract_rust.py`, `tools/extract_go.py`, and `tools/extract_typescript.py` scan a project root and emit JSON facts:
+
+- `modules`: `{name, path, package?}` entries.
+- `dependencies`: `{from, to, kind, source, line}` entries.
+
+`tools/check_architecture.py` reads facts plus a policy with `regions`, `allowed`, and `forbidden` fields. It reports:
+
+- `core_outward`: a core module depends on a non-core module.
+- `forbidden_import`: a core module imports a forbidden target.
+- `edge_not_allowed`: a source region has no permission for the target region.
+- `cycle`: a module dependency cycle.
+
+Policy patterns use shell-style `fnmatch`; the first matching region wins. `default_region` catches external packages. Region entries with `"core": true` correspond to `Core` in the Lean model. `tests/fixtures/policy.json` is an example covering Rust, Go, and TypeScript module names.
+
+Usage:
+
+```sh
+python3 tools/extract_rust.py --root /path/to/project --out rust-facts.json
+python3 tools/extract_go.py --root /path/to/project --out go-facts.json
+python3 tools/extract_typescript.py --root /path/to/project --out ts-facts.json
+python3 tools/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
+```
+
+Limits:
+
+- Static source scanning only: no reflection, macro expansion, generated code, or runtime dependency injection.
+- Rust `use` items are resolved to the nearest known local module; external paths become bare crate names.
+- Go imports come from source files, not `go list`; `vendor/` is skipped.
+- TypeScript handles single-line static imports/exports, `require()`, and `import()`; multi-line `from` clauses are not parsed.
+- The checker is a decidable approximation of the formal predicates, not a Lean proof that a concrete codebase complies.
+
+The fixtures under `tests/fixtures/` contain deliberate violations and are useful for smoke-testing the pipeline.
