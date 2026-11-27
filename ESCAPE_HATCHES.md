@@ -16,10 +16,10 @@ checker output. Silent skipping is not an exception; it is a defect.
 
 ## 1. Bootstrapping
 
-`architecture.py init --preset <name> --output <dir>` is the bootstrap hatch.
-It creates the layer directories, a minimal `architecture.toml`, an empty
-`architecture.baseline.json`, and `architecture.lock`. A scaffolded project
-must pass `architecture.py --root <dir> check` with zero violations.
+`lintel --root <dir> init --preset <name> --output <dir>` is the bootstrap hatch.
+It creates the layer directories, a minimal `lintel.toml`, an empty
+`lintel.baseline.json`, `lintel.lock`, and the agent instruction files. A scaffolded project
+must pass `lintel --root <dir> check` with zero violations.
 
 The command is preset-driven and non-interactive so it is deterministic and
 usable in CI. "Walking the user through" means choosing a named structure; it
@@ -27,7 +27,7 @@ does not mean adding prompts that cannot be reviewed or replayed.
 
 ## 2. Known debt
 
-`architecture.baseline.json` is the exclusion list. Each entry is a full
+`lintel.baseline.json` is the exclusion list. Each entry is a full
 violation identity: rule, message, and fields. `accept-baseline` is explicit,
 rewrites the baseline, and relocks the config. The ratchet enforces:
 
@@ -63,10 +63,11 @@ dynamic attribute lookup, dynamic module loading, and similar reflection.
 Detected cases produce `semantic_review` with the source location and reason.
 
 `semantic_review` is baselineable because the outcome of review is a human or
-judge decision, not an automatic pass. Accepting one records that the case was
-reviewed. A future semantic judge may classify these as compliant, violating,
-or `needs-human-review`; the deterministic checker does not guess.
-Generated Lean marks baseline-accepted reviews as accepted; all other findings are pending.
+judge decision, not an automatic pass. `lintel --root <dir> review <fingerprint>
+--decision compliant|violating|needs-human-review --reason <reason>` records that decision.
+`compliant` accepts the finding and records its source for generated Lean; the
+other decisions leave it pending. Every decision requires a reason and relocks
+the baseline. The deterministic checker does not guess.
 
 ## 5. Policy evolution
 
@@ -79,7 +80,7 @@ lock so the change cannot bypass review.
 
 `check --no-cache` and `generate-lean --no-cache` force full extraction and
 rechecking. The default cache is derived, untracked state in
-`architecture.cache.json`; it never narrows the checked universe. A stale,
+`lintel.cache.json`; it never narrows the checked universe. A stale,
 missing, or malformed cache falls back to full extraction, and global rules are
 always re-run on the merged facts.
 

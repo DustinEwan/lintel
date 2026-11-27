@@ -21,7 +21,7 @@ jobs:
           auto-config: false
           build: true
           use-mathlib-cache: false
-
+          working-directory: lintel
   python:
     name: Architecture checker
     runs-on: ubuntu-latest
@@ -56,20 +56,20 @@ jobs:
           cache: npm
 
       - name: Install extractor dependencies
-        run: npm ci
+        run: npm ci --prefix lintel
 
       - name: Compile Python sources
-        run: python3 -m py_compile adapters/*.py adapters/language/*.py architecture_core/*.py architecture_core/use_cases/*.py external/cli/*.py tests/*.py
+        run: python3 -m py_compile lintel/*.py lintel/adapters/*.py lintel/adapters/language/*.py lintel/core/*.py lintel/core/use_cases/*.py lintel/cli/*.py tests/*.py
 
       - name: Run unit tests
         run: python3 -m unittest discover -s tests -v
 
       - name: Check repository architecture
         run: |
-          python3 external/cli/check_self.py --out /tmp/architecture-facts.json
-          python3 external/cli/check_architecture.py /tmp/architecture-facts.json --config architecture.toml
+          python3 lintel/cli/check_self.py --out /tmp/lintel-facts.json
+          python3 lintel/cli/check_facts.py /tmp/lintel-facts.json --config lintel.toml
 
       - name: Generate and check Lean instance
         run: |
-          python3 external/cli/architecture.py generate-lean --out /tmp/ArchitectureFacts.lean
+          python3 lintel/cli/main.py generate-lean --out /tmp/LintelFacts.lean
 

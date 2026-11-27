@@ -3,4 +3,4 @@ __pycache__/
 *.pyc
 node_modules/
 target/
-architecture.cache.json
+lintel.cache.json

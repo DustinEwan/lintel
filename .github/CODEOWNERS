@@ -1,6 +1,9 @@
-/architecture.toml @architecture-owners
-/architecture.lock @architecture-owners
-/architecture.baseline.json @architecture-owners
+/lintel.toml @architecture-owners
+/lintel.lock @architecture-owners
+/lintel.baseline.json @architecture-owners
+/AGENTS.md @architecture-owners
+/SKILL.md @architecture-owners
+/HARNESS_SETUP.md @architecture-owners
 /PLAN.md @architecture-owners
 /ESCAPE_HATCHES.md @architecture-owners
 /SEMANTIC_SCENARIOS.md @architecture-owners

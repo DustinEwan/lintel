@@ -1,0 +1,23 @@
+# Lintel harness setup
+
+Lintel exposes one harness-neutral command:
+
+```sh
+lintel --root . hook <session-start|post-edit|stop|review-request>
+```
+
+It prints JSON with `block`, `context`, `findings`, and `commands`. Treat
+`block: true` as a failed in-loop check and surface the findings to the user.
+
+Claude Code: add a `PostToolUse` hook with matcher `Edit|Write` whose command is
+`lintel --root . hook post-edit`. Add a `Stop` hook with
+`lintel --root . hook stop`.
+
+OpenCode: reference `AGENTS.md` as a project instruction file and call the same
+hook command from an extension event handler.
+
+Pi: call `lintel --root . hook session-start` on `session_start` and
+`lintel --root . hook stop` on `session_shutdown`.
+
+Generic harnesses: run the hook command after edits and before completion; treat
+a nonzero exit or `block: true` as a failed check.

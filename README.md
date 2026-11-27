@@ -1,4 +1,4 @@
-# Software Architecture Pattern Research Notes
+# Lintel — Software Architecture Pattern Research Notes
 
 ## Scope
 
@@ -40,15 +40,16 @@ The practical differences are mostly **emphasis and vocabulary**:
 
 ## Boundary surfaces
 
-An executable is an **outer boundary surface**, not an adapter implementation. `external/cli/` owns argv parsing, environment access, process exit codes, and terminal I/O. Those concerns never move inward: a CLI wrapper parses input, composes concrete adapters, and calls a core use case.
+An executable is an **outer boundary surface**, not an adapter implementation. `lintel/cli/` owns argv parsing, environment access, process exit codes, and terminal I/O. Those concerns never move inward: a CLI wrapper parses input, composes concrete adapters, and calls a core use case.
 
 ```text
-external/cli/*       argv, env, exit status, composition
+lintel/cli/*         argv, env, exit status, composition
         ↓
-adapters/*           files, subprocesses, JSON, language toolchains
+lintel/adapters/*    files, subprocesses, JSON, language toolchains
         ↓
-architecture_core/* facts, policy, rules, workflows behind ports
+lintel/core/*        facts, policy, rules, workflows behind ports
 ```
+
 
 If an adapter imports `argparse`, reads `sys.argv`, or owns process exit behavior, that is evidence of inverted dependency direction. Tests, examples, fixtures, generated code, and vendor code are **scopes**, not architectural layers. `external` means unowned dependency or outside system, not a peer layer for owned code.
 
@@ -134,7 +135,7 @@ A service can therefore have a DDD domain model, Clean-style use cases, Hexagona
 
 ## Formal Lean spec
 
-`Architecture.lean` formalizes the common philosophy in Lean 4. The spec models a system as:
+`lintel/Lintel.lean` formalizes the common philosophy in Lean 4. The spec models a system as:
 
 - `Module`: a set of modules or components.
 - `dep`: a source-code dependency relation.
@@ -174,7 +175,7 @@ The spec also defines `Port`, `Adapter`, `CapabilityPort`, `CapabilityAdapter`, 
 
 Acyclicity is scoped to dependency graphs extracted below the package or project-reference level. Cargo rejects ordinary package dependency cycles and TypeScript project references reject reference cycles; the remaining practical gaps are module-level cycles inside a crate/project and dev/test-only edges.
 
-This verifies the **formal model**. The adapters in `adapters/` bridge real source code to that model: extractors emit `Module` and `dep` facts, and the checker enforces the same rules in decidable form.
+This verifies the **formal model**. The adapters in `lintel/adapters/` bridge real source code to that model: extractors emit `Module` and `dep` facts, and the checker enforces the same rules in decidable form.
 
 `generate-lean` instantiates every executable-fact category from the checker in the generated module: core and policy architecture, acyclicity, nested embedding, ports/adapters/inverted calls, multi-core layered regions, use-case purity, declared entrypoints, scope assignments, boundary concerns, wrapper operations, and semantic review state. `MultiCoreLayeredArchitecture` is used because the current policy has several core regions. The current policy also permits same-region edges and multiple core regions, so no strict layered instance is emitted. Typed capability structures and extraction/runtime semantics remain abstract or outside the generated instance.
 
@@ -192,12 +193,12 @@ CI runs both `lake build` and the Python checker pipeline on pushes and pull req
 
 ## Extractors and checker
 
-`external/cli/extract_*.py` are CLI entrypoints. They call the extractor libraries in `adapters/*_extractor.py`, which scan a project root and emit JSON facts:
+`lintel/cli/extract_*.py` are CLI entrypoints. They call the extractor libraries in `lintel/adapters/*_extractor.py`, which scan a project root and emit JSON facts:
 
 - `modules`: `{name, path, package?}` entries.
 - `dependencies`: `{from, to, kind, source, line}` entries.
 
-`external/cli/check_architecture.py` reads facts plus architecture configuration from `architecture.toml` (`--config`) or a JSON policy file (`--policy`). It reports:
+`lintel/cli/check_facts.py` reads facts plus architecture configuration from `lintel.toml` (`--config`) or a JSON policy file (`--policy`). It reports:
 
 - `core_outward`: a core module depends on a non-core module.
 - `forbidden_import`: a core module imports a forbidden target.
@@ -207,50 +208,71 @@ CI runs both `lake build` and the Python checker pipeline on pushes and pull req
 - `unparsed_source`: declared source could not be parsed or has no analyzer.
 - `semantic_review`: detectable ambiguity needs a judge or human review.
 Layer patterns use shell-style `fnmatch`; layers are sorted by `priority` and the first matching layer wins. `default_layer` catches dependencies with no matching layer; it is an unowned fallback, not an owned layer. Layers with `core = true` correspond to `Core` in the Lean model. `tests/fixtures/policy.json` remains an example JSON policy covering Rust, Go, and TypeScript module names.
-`architecture.toml` separates three concepts: `[layers.*]` defines inward dependency rings, `[scopes.*]` identifies test/example/fixture/generated/vendor contexts, and `[[executables]]` declares CLI surfaces with their owning layer. `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core.
+`lintel.toml` separates three concepts: `[layers.*]` defines inward dependency rings, `[scopes.*]` identifies test/example/fixture/generated/vendor contexts, and `[[executables]]` declares CLI surfaces with their owning layer. `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core.
 `[analysis] source_suffixes` is required and declares which file suffixes are governed source. A declared suffix without an analyzer, or a known source suffix that is not declared, is an `unparsed_source` error. Exception rules are formalized in `ESCAPE_HATCHES.md`; semantic ambiguity scenarios are listed in `SEMANTIC_SCENARIOS.md`.
 
-Usage:
+Install and usage:
 
 ```sh
-python3 external/cli/extract_rust.py --root /path/to/project --out rust-facts.json
-python3 external/cli/extract_rust_native.py --root /path/to/project --out rust-native-facts.json
-python3 external/cli/extract_go.py --root /path/to/project --out go-facts.json
-python3 external/cli/extract_typescript.py --root /path/to/project --out ts-facts.json
-python3 external/cli/extract_python.py --root /path/to/project --out py-facts.json
-python3 external/cli/extract_go_native.py --root /path/to/project --out go-native-facts.json
-npm install
-python3 external/cli/extract_typescript_native.py --root /path/to/project --out ts-native-facts.json
-python3 external/cli/check_architecture.py rust-facts.json --config architecture.toml
-python3 external/cli/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
-python3 external/cli/check_self.py
+python3 -m pip install .
+lintel --root /path/to/project check
+lintel --root /path/to/project check --format json
+lintel list-rules
+lintel explain adapter_cli_concern
+lintel --root /path/to/project update-lock
+lintel --root /path/to/project accept-baseline
+lintel init --preset clean --output /path/to/new-project
+lintel --root /path/to/project generate-lean --out /path/to/LintelFacts.lean [--no-check]
 
-
-# Governed project workflow
-python3 external/cli/architecture.py --root /path/to/project check
-python3 external/cli/architecture.py list-rules
-python3 external/cli/architecture.py explain adapter_cli_concern
-python3 external/cli/architecture.py --root /path/to/project update-lock
-python3 external/cli/architecture.py --root /path/to/project accept-baseline
-python3 external/cli/architecture.py init --preset clean --output /path/to/new-project
-python3 external/cli/architecture.py --root /path/to/project generate-lean --out /path/to/GeneratedFacts.lean [--no-check]
+# Extractor surfaces for toolchain-backed facts
+python3 lintel/cli/extract_rust.py --root /path/to/project --out rust-facts.json
+python3 lintel/cli/extract_rust_native.py --root /path/to/project --out rust-native-facts.json
+python3 lintel/cli/extract_go.py --root /path/to/project --out go-facts.json
+python3 lintel/cli/extract_typescript.py --root /path/to/project --out ts-facts.json
+python3 lintel/cli/extract_python.py --root /path/to/project --out py-facts.json
+python3 lintel/cli/extract_go_native.py --root /path/to/project --out go-native-facts.json
+npm ci --prefix lintel
+python3 lintel/cli/extract_typescript_native.py --root /path/to/project --out ts-native-facts.json
+python3 lintel/cli/check_facts.py rust-facts.json --config lintel.toml
+python3 lintel/cli/check_facts.py rust-facts.json --policy tests/fixtures/policy.json
+python3 lintel/cli/check_self.py
 ```
 
-`generate-lean` emits a finite Lean module that imports `Architecture` and instantiates its structures and theorems from the facts. Accepted `semantic_review` findings come from `architecture.baseline.json` (override with `--baseline`); all other findings are pending. By default it then runs `lake build` and checks the generated module with `lake env lean`; use `--no-check` when the Lean toolchain is unavailable.
+`generate-lean` emits a finite Lean module that imports `Lintel` and instantiates its structures and theorems from the facts. Accepted `semantic_review` findings come from `lintel.baseline.json` (override with `--baseline`); all other findings are pending. By default it then runs `lake build` and checks the generated module with `lake env lean`; use `--no-check` when the Lean toolchain is unavailable.
 
-The Python extractor libraries are dependency-free. `adapters/python_extractor.py` uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
-Native extractor programs inside `adapters/` are build artifacts invoked by `external/cli` wrappers. `architecture.toml` records them under `[scopes.build_artifact]` and declares the wrapper surfaces under `[[executables]]`; their argv parsing is internal to the artifact, not the repository's public boundary.
-Checks are locked by default. `architecture.toml` is the contract; `architecture.lock` binds its semantic hash, the rule catalog, the checker implementation artifacts, and the baseline hash. `architecture.baseline.json` ratchets existing violations: new violations fail, and removed violations require an explicit acceptance to keep the baseline clean. Only architecture violations are baselineable; config errors, contract drift, unparsed source, and baseline errors cannot be accepted away. Use `--no-lock` only for bootstrap and debugging. Contract files are review-protected through `.github/CODEOWNERS`.
+The Python extractor libraries are dependency-free. `lintel/adapters/python_extractor.py` uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `lintel/adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
+Native extractor programs inside `lintel/adapters/` are build artifacts invoked by `lintel/cli` wrappers. `lintel.toml` records them under `[scopes.build_artifact]` and declares the wrapper surfaces under `[[executables]]`; their argv parsing is internal to the artifact, not the repository's public boundary.
+Checks are locked by default. `lintel.toml` is the contract; `lintel.lock` binds its semantic hash, the rule catalog, the checker implementation artifacts, and the baseline hash. `lintel.baseline.json` ratchets existing violations: new violations fail, and removed violations require an explicit acceptance to keep the baseline clean. Only architecture violations are baselineable; config errors, contract drift, unparsed source, and baseline errors cannot be accepted away. Use `--no-lock` only for bootstrap and debugging. Contract files are review-protected through `.github/CODEOWNERS`.
 
-Validation is incremental by default. `architecture.cache.json` is an untracked, content-addressed cache keyed by the lock digests, policy, Python version, tool-root artifacts, and per-file hashes. A cache hit reuses extracted facts; a change re-extracts only when required and always re-runs the full global `check()` on the merged `FactSet`. `generate-lean` also skips repeated generated-instance checks when the generated file, `Architecture.lean`, and `lean-toolchain` are unchanged. Use `--no-cache` with `check` or `generate-lean` to force full extraction and rechecking. The cache is derived state: delete it at any time.
-Core logic lives in `architecture_core/`: pure fact types, policy matching, checker rules, ports, and use cases. `adapters/` contains concrete mechanisms that translate source syntax into facts and perform file/process I/O; `adapters/runtime.py` composes those mechanisms behind core ports. `external/cli/` contains executable surfaces only. Dependencies point inward: entrypoints -> adapters -> core; core has no CLI, subprocess, JSON-I/O, or filesystem dependencies.
+Validation is incremental by default. `lintel.cache.json` is an untracked, content-addressed cache keyed by the lock digests, policy, Python version, tool-root artifacts, and per-file hashes. A cache hit reuses extracted facts; a change re-extracts only when required and always re-runs the full global `check()` on the merged `FactSet`. `generate-lean` also skips repeated generated-instance checks when the generated file, `lintel/Lintel.lean`, and `lintel/lean-toolchain` are unchanged. Use `--no-cache` with `check` or `generate-lean` to force full extraction and rechecking. The cache is derived state: delete it at any time.
+Core logic lives in `lintel/core/`: pure fact types, policy matching, checker rules, ports, hooks, review decisions, and use cases. `lintel/adapters/` contains concrete mechanisms that translate source syntax into facts and perform file/process I/O; `lintel/adapters/runtime.py` composes those mechanisms behind core ports. `lintel/cli/` contains executable surfaces only. Dependencies point inward: entrypoints -> adapters -> core; core has no CLI, subprocess, JSON-I/O, or filesystem dependencies.
 
-Boundary-concern and wrapper-operation detection lives behind `SourceAnalyzerPort`. `adapters/language/` contains one analyzer per supported source language, registered by suffix; `adapters/contract_facts.py` only composes their normalized facts with scope assignments. Ambiguous cases requiring intent are listed in `SEMANTIC_SCENARIOS.md`.
+Boundary-concern and wrapper-operation detection lives behind `SourceAnalyzerPort`. `lintel/adapters/language/` contains one analyzer per supported source language, registered by suffix; `lintel/adapters/contract_facts.py` only composes their normalized facts with scope assignments. Ambiguous cases requiring intent are listed in `SEMANTIC_SCENARIOS.md`.
 
-Python parse failures are recorded in an `unparsed` array and reported as `unparsed_source` violations. Native analyzers use language-specific token detection without parser-level `unparsed` facts; unsupported suffixes are currently skipped, and ambiguous cases are inventoried in `SEMANTIC_SCENARIOS.md` for a future semantic judge.
+Python parse failures are recorded in an `unparsed` array and reported as `unparsed_source` violations. Native analyzers use language-specific token detection without parser-level `unparsed` facts. Every source suffix in a governed project must be declared in `[analysis] source_suffixes`; undeclared or unsupported suffixes fail closed as `unparsed_source`.
 
-Dogfooding: `python3 external/cli/check_self.py` parses CLI arguments, builds the runtime adapter, and calls the self-check use case. The use case asks ports for config, facts, and checking; `adapters/runtime.py` performs extraction, merging, and file I/O behind those ports. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
-Dogfood configuration and policy live in `architecture.toml` at the repo root:
+## Agent and harness integration
+
+`lintel init` writes short `AGENTS.md`, procedural `SKILL.md`, and fallback `HARNESS_SETUP.md` files into the scaffolded project. They describe the same deterministic workflow without importing any harness SDK.
+
+Every harness calls one command:
+
+```sh
+lintel --root . hook <session-start|post-edit|stop|review-request>
+```
+
+It prints JSON with `block`, `context`, `findings`, and `commands`. Findings carry stable fingerprints. `block` is true for `post-edit` and `stop` when unresolved violations exist. `HARNESS_SETUP.md` shows hook wiring for Claude Code, OpenCode, Pi, and a generic shell fallback.
+
+Semantic decisions are explicit:
+
+```sh
+lintel --root . review <fingerprint> --decision compliant --reason "port is intentionally typed"
+```
+
+`compliant` accepts the finding and records its source for generated Lean. `violating` and `needs-human-review` leave the finding pending. Every decision requires a reason and updates the baseline and lock through a reviewable diff.
+
+Dogfooding: `python3 lintel/cli/check_self.py` parses CLI arguments, builds the runtime adapter, and calls the self-check use case. The use case asks ports for config, facts, and checking; `lintel/adapters/runtime.py` performs extraction, merging, and file I/O behind those ports. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
+Dogfood configuration and policy live in `lintel.toml` at the repo root:
 
 ```toml
 version = 1
@@ -258,19 +280,19 @@ default_layer = "external"
 default_scope = "external"
 
 [paths]
-core_root = "architecture_core"
-adapters_root = "adapters"
-entrypoints_root = "external/cli"
+core_root = "lintel/core"
+adapters_root = "lintel/adapters"
+entrypoints_root = "lintel/cli"
 
 [[executables]]
 name = "check_self"
-path = "external/cli/check_self.py"
+path = "lintel/cli/check_self.py"
 owner = "entrypoints"
 
 [layers.core]
 priority = 20
 core = true
-patterns = ["architecture_core.*"]
+patterns = ["lintel.core.*"]
 allowed = ["ports", "core", "platform"]
 ```
 
@@ -279,7 +301,7 @@ CLI flags override path values. Layer patterns and allowed edges are independent
 Limits:
 
 - Python extractors are static source scanners; native extractors use language toolchains. Reflection, generated code, and runtime dependency injection remain out of scope.
-- `adapters/python_extractor.py` handles absolute and relative imports, `__init__.py` packages, `src/` layouts, and literal `importlib`/`__import__` calls. Relative dynamic imports are resolved against `package=` or the current package; parse errors, non-literal or unresolved dynamic imports, and `eval`/`exec` are reported as unparsed.
+- `lintel/adapters/python_extractor.py` handles absolute and relative imports, `__init__.py` packages, `src/` layouts, and literal `importlib`/`__import__` calls. Relative dynamic imports are resolved against `package=` or the current package; parse errors, non-literal or unresolved dynamic imports, and `eval`/`exec` are reported as unparsed.
 - Rust `use` items are resolved to the nearest known local module; `pub use`, `pub(crate) use`, `pub(super) use`, `pub(in path) use`, and `extern crate` are included. Unrecognized visibility forms are reported as unparsed, as are `include!`, `#[path]`, and `macro_rules!`. The native extractor parses Rust ASTs with `syn`, reads the package name from `cargo metadata`, and reports workspace roots as unparsed instead of attributing all members to the first package.
 - The Python Go scanner parses import declarations from source. `go-extractor` uses `go list -json` plus `go/parser` for package paths and import positions. Build-tagged and unparseable files are reported as unparsed.
 - The Python TypeScript scanner handles single-line static imports/exports, `require()`, and `import()` including import attributes across `.ts`, `.tsx`, `.mts`, `.cts`, `.mjs`, and `.cjs`; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.

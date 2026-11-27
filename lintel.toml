@@ -1,0 +1,287 @@
+version = 1
+default_layer = "external"
+default_scope = "external"
+
+[paths]
+core_root = "lintel/core"
+adapters_root = "lintel/adapters"
+entrypoints_root = "lintel/cli"
+
+[analysis]
+source_suffixes = [".py", ".go", ".rs", ".mjs", ".js", ".ts", ".tsx"]
+
+[scopes.external]
+patterns = ["*"]
+priority = 0
+
+[scopes.test]
+patterns = ["tests/**", "**/*_test.py", "**/*.test.ts"]
+priority = 10
+
+[scopes.fixture]
+patterns = ["tests/fixtures/**"]
+priority = 20
+
+[scopes.example]
+patterns = ["examples/**"]
+priority = 10
+
+[scopes.build_artifact]
+patterns = [
+  "lintel/adapters/extract_typescript_native.mjs",
+  "lintel/adapters/go-extractor/main.go",
+  "lintel/adapters/rust-extractor/src/main.rs"
+]
+priority = 30
+
+[scope_rules]
+excluded_scopes = ["fixture", "test", "example", "generated", "vendor"]
+forbidden_edges = []
+
+[scope_rules.conventions]
+"tests/fixtures/" = "fixture"
+"tests/" = "test"
+"examples/" = "example"
+
+[boundary_concerns.entrypoint_only]
+
+[boundary_concerns.mechanism]
+allowed_regions = ["adapters", "infrastructure", "entrypoints", "external"]
+
+[wrapper_rules]
+allowed_imports = [
+  "argparse",
+  "json",
+  "os",
+  "sys",
+  "subprocess",
+  "tempfile",
+  "lintel.adapters.*",
+  "lintel.core.model*",
+  "lintel.core.use_cases.*",
+  "lintel.core.hooks",
+  "lintel.core.review"
+]
+forbidden_imports = [
+  "lintel.core.checker",
+  "lintel.core.rules",
+  "lintel.core.ratchet"
+]
+allowed_commands = ["cargo", "go", "lake", "node", "python3"]
+
+[use_cases]
+allowed_imports = [
+  "lintel.core.ports*",
+  "lintel.core.model*",
+  "typing*",
+  "dataclasses*"
+]
+
+[layers.ports]
+priority = 10
+core = true
+patterns = [
+  "lintel.core.model*",
+  "lintel.core.ports*",
+  "lintel.core.rules*",
+  "lintel.core.ratchet*",
+  "lintel.core.presets*",
+  "Lintel.Port*",
+  "Lintel.CapabilityPort*",
+  "Lintel.TypedCapabilityPort*",
+  "Lintel.BoundaryDataLanguage*"
+]
+allowed = ["ports", "core", "platform"]
+forbidden = [
+  "lintel.cli.*",
+  "check_facts",
+  "check_self",
+  "adapters.*_extractor",
+  "adapters.extract_*",
+  "extract_*",
+  "rust_extractor",
+  "architecture-extractors/go-extractor",
+  "extract_common",
+  "lintel.adapters.runtime"
+]
+
+[layers.core]
+priority = 20
+core = true
+patterns = ["Lintel", "lintel.core.*"]
+allowed = ["ports", "core", "platform"]
+forbidden = [
+  "lintel.cli.*",
+  "check_facts",
+  "check_self",
+  "adapters.*_extractor",
+  "adapters.extract_*",
+  "extract_*",
+  "rust_extractor",
+  "architecture-extractors/go-extractor",
+  "extract_common",
+  "lintel.adapters.runtime"
+]
+
+[layers.platform]
+priority = 30
+core = true
+patterns = [
+  "argparse",
+  "ast",
+  "bytes",
+  "collections",
+  "contextlib",
+  "core",
+  "csv",
+  "dataclasses*",
+  "datetime",
+  "encoding/json",
+  "enum",
+  "flag",
+  "fnmatch*",
+  "fmt",
+  "glob",
+  "go/parser",
+  "go/token",
+  "hashlib",
+  "io",
+  "itertools",
+  "json",
+  "logging",
+  "math",
+  "node:child_process",
+  "node:fs",
+  "node:path",
+  "os",
+  "os/exec",
+  "path/filepath",
+  "pathlib",
+  "posixpath*",
+  "random",
+  "re",
+  "shutil",
+  "sort",
+  "std",
+  "strconv",
+  "strings",
+  "subprocess",
+  "sys",
+  "tempfile",
+  "time",
+  "tomllib",
+  "traceback",
+  "typing*"
+]
+allowed = ["platform"]
+
+[layers.entrypoints]
+priority = 40
+core = false
+patterns = [
+  "lintel.cli.*",
+  "lintel",
+  "check_facts",
+  "check_self",
+  "extract_python",
+  "extract_go",
+  "extract_rust",
+  "extract_typescript"
+]
+allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
+
+[layers.infrastructure]
+priority = 50
+core = false
+patterns = [
+  "lintel.adapters.runtime",
+  "lintel.adapters.config",
+  "lintel.adapters.extract_common",
+  "lintel.adapters.contract_facts",
+  "lintel.adapters.contract_lock",
+  "config",
+  "contract_facts",
+  "contract_lock",
+  "extract_common",
+]
+allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
+
+[layers.adapters]
+priority = 60
+core = false
+patterns = [
+  "lintel.adapters.*",
+  "extract_*",
+  "extract_typescript_native",
+  "rust_extractor",
+  "architecture-extractors/go-extractor"
+]
+allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
+
+[layers.external]
+priority = 1000
+core = false
+patterns = ["*"]
+allowed = ["external"]
+
+[[executables]]
+name = "lintel"
+path = "lintel/cli/main.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "check_self"
+path = "lintel/cli/check_self.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "check_facts"
+path = "lintel/cli/check_facts.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_python"
+path = "lintel/cli/extract_python.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_go"
+path = "lintel/cli/extract_go.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_rust"
+path = "lintel/cli/extract_rust.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_typescript"
+path = "lintel/cli/extract_typescript.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_rust_native"
+path = "lintel/cli/extract_rust_native.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_go_native"
+path = "lintel/cli/extract_go_native.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_typescript_native"
+path = "lintel/cli/extract_typescript_native.py"
+owner = "entrypoints"
+
+[[build_artifacts]]
+source = "lintel/adapters/rust-extractor/src/main.rs"
+wrapper = "extract_rust_native"
+
+[[build_artifacts]]
+source = "lintel/adapters/go-extractor/main.go"
+wrapper = "extract_go_native"
+
+[[build_artifacts]]
+source = "lintel/adapters/extract_typescript_native.mjs"
+wrapper = "extract_typescript_native"

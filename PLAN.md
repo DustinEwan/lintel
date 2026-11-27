@@ -24,7 +24,7 @@ Implemented:
 - TOML config with layers, scopes, and executable declarations;
 - core ports and use cases;
 - adapter runtime;
-- `external/cli` executable wrappers;
+- `lintel/cli` executable wrappers;
 - native extractor build-artifact wrappers;
 - self-check dogfooding.
 
@@ -56,7 +56,7 @@ Do this first. Every later rule makes the contract more powerful, so an agent mu
 
 ### Problem
 
-`architecture.toml` is trusted by the checker. A governed agent can currently “fix” a violation by:
+`lintel.toml` is trusted by the checker. A governed agent can currently “fix” a violation by:
 
 - widening `allowed`;
 - adding an executable declaration;
@@ -71,11 +71,11 @@ That is not enforcement.
 
 Add three committed artifacts:
 
-- `architecture.lock`
-- `architecture.baseline.json`
+- `lintel.lock`
+- `lintel.baseline.json`
 - CODEOWNERS or CI protection for contract files.
 
-`architecture.lock` contains:
+`lintel.lock` contains:
 
 version = 1
 schema_version = 1
@@ -96,7 +96,7 @@ Comment-only edits should not invalidate the lock. Semantic config edits should.
 
 `rule_catalog_sha256` covers stable IDs, parameters, summaries, and fix hints. `checker_artifact_sha256` covers the bytes of every file that implements extraction, validation, rule evaluation, and baseline handling. A code change that weakens a rule therefore changes the lock and is visible in review. CI may additionally run an immutable pinned checker for stronger assurance.
 
-`architecture.baseline.json` contains accepted existing violations keyed by a stable fingerprint:
+`lintel.baseline.json` contains accepted existing violations keyed by a stable fingerprint:
 
 ```text
 rule_id + normalized path + symbol or location + relevant message context
@@ -117,9 +117,9 @@ Line numbers should not be part of the fingerprint unless no stable symbol exist
 This is tamper-evident, not cryptographically tamper-proof. A governed agent can still edit both policy and lock, but the change is visible in review and can be restricted with CODEOWNERS:
 
 ```text
-/architecture.toml @architecture-owners
-/architecture.lock @architecture-owners
-/architecture.baseline.json @architecture-owners
+/lintel.toml @architecture-owners
+/lintel.lock @architecture-owners
+/lintel.baseline.json @architecture-owners
 ```
 
 Optional stronger mode: sign the lock outside the repository and verify the signature in CI.
@@ -136,7 +136,7 @@ Optional stronger mode: sign the lock outside the repository and verify the sign
 
 ### Goal
 
-Treat `architecture.toml` as a validated contract before any facts are checked.
+Treat `lintel.toml` as a validated contract before any facts are checked.
 
 ### Checks
 
@@ -305,7 +305,7 @@ Prevent business logic from creeping into entrypoints without forbidding legitim
 
 ### Forbidden in entrypoints
 
-- importing `architecture_core.checker`;
+- importing `lintel.core.checker`;
 - constructing `Policy`;
 - walking source trees;
 - parsing source syntax;
@@ -319,7 +319,7 @@ Prevent business logic from creeping into entrypoints without forbidding legitim
 
 ### Acceptance
 
-`external/cli/extract_python.py` importing `adapters.python_extractor` passes. `external/cli/extract_rust_native.py` invoking `cargo build` passes. A CLI module containing extraction or policy logic fails.
+`lintel/cli/extract_python.py` importing `lintel.adapters.python_extractor` passes. `lintel/cli/extract_rust_native.py` invoking `cargo build` passes. A CLI module containing extraction or policy logic fails.
 
 ## Phase 6 — Rule registry, tests, and actionable output
 
@@ -344,7 +344,7 @@ Make the checker usable by agents and maintainable by humans.
   "message": "...",
   "from": "adapters.foo",
   "location": "adapters/foo.py:12",
-  "fix": "Move argv parsing to external/cli and inject parsed input through a port."
+  "fix": "Move argv parsing to lintel/cli and inject parsed input through a port."
 }
 ```
 

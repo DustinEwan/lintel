@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lintel"
+version = "0.1.0"
+description = "Architecture governance for agentic codebases"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[project.scripts]
+lintel = "lintel.cli.main:main"
+
+[tool.setuptools]
+include-package-data = false
+packages = [
+  "lintel",
+  "lintel.adapters",
+  "lintel.adapters.language",
+  "lintel.cli",
+  "lintel.core",
+  "lintel.core.use_cases",
+]
+
+[tool.setuptools.package-data]
+lintel = [
+  "Lintel.lean",
+  "lean-toolchain",
+  "lakefile.toml",
+  "lake-manifest.json",
+  "package.json",
+  "package-lock.json",
+  "adapters/extract_typescript_native.mjs",
+  "adapters/go-extractor/go.mod",
+  "adapters/go-extractor/main.go",
+  "adapters/rust-extractor/Cargo.lock",
+  "adapters/rust-extractor/Cargo.toml",
+  "adapters/rust-extractor/src/main.rs",
+]
