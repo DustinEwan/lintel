@@ -62,6 +62,7 @@ class ConfigValidationTests(unittest.TestCase):
             "version": 1,
             "default_layer": "external",
             "default_scope": "external",
+            "analysis": {"source_suffixes": [".py"]},
             "unexpected": True,
             "layers": {
                 "external": {"priority": 1000, "allowed": ["missing"]},
@@ -72,6 +73,18 @@ class ConfigValidationTests(unittest.TestCase):
         violations = architecture_config.validate_config(config)
         self.assertIn("config_unknown_key", rules(violations))
         self.assertIn("config_bad_reference", rules(violations))
+
+    def test_missing_source_suffixes_is_rejected(self):
+        config = architecture_config.load_config(CONFIG_PATH)
+        del config["analysis"]["source_suffixes"]
+        violations = architecture_config.validate_config(config, ROOT)
+        self.assertIn("config_invalid", rules(violations))
+
+    def test_invalid_source_suffixes_are_rejected(self):
+        config = architecture_config.load_config(CONFIG_PATH)
+        config["analysis"]["source_suffixes"] = ".py"
+        violations = architecture_config.validate_config(config, ROOT)
+        self.assertIn("config_invalid", rules(violations))
 
     def test_new_adapters_subpackages_use_adapters_layer(self):
         self.assertEqual(
@@ -373,6 +386,22 @@ class EscapeHatchTests(unittest.TestCase):
         )
         self.assertTrue(any(item.rule == "unparsed_source" for item in violations))
 
+    def test_undeclared_known_source_suffix_fails_closed(self):
+        config = architecture_config.load_config(os.path.join(ROOT, "architecture.toml"))
+        policy = policy_from_dict(architecture_config.policy_from_config(config))
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "widget.rb"), "w", encoding="utf-8") as handle:
+                handle.write("puts 'hello'\n")
+            facts = contract_facts.discover(directory, policy, policy.entrypoints_root)
+            violations = check(facts_from_dict(facts), policy)
+        self.assertTrue(
+            any(
+                item["reason"] == "undeclared source suffix: .rb"
+                for item in facts["unparsed"]
+            )
+        )
+        self.assertTrue(any(item.rule == "unparsed_source" for item in violations))
+
     def test_semantic_review_flag_is_reported_and_excluded_scope_skipped(self):
         analysis = PythonSourceAnalyzer().analyze(
             "adapters/example.py", "import os\nvalue = getattr(os, \"environ\")\n"
@@ -390,5 +419,6 @@ class EscapeHatchTests(unittest.TestCase):
         self.assertTrue(
             any(item.rule == "semantic_review" for item in check_semantic_review(included, policy))
         )
+
 if __name__ == "__main__":
     unittest.main()

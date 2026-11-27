@@ -6,7 +6,7 @@ from dataclasses import asdict
 from fnmatch import fnmatchcase
 
 from adapters.extract_common import SKIP_DIRS, rel
-from adapters.language import analyzer_for_suffix
+from adapters.language import KNOWN_SOURCE_SUFFIXES, analyzer_for_suffix
 
 
 def _walk(root):
@@ -46,13 +46,12 @@ def discover(root, policy, entrypoints_root):
         analyzer = analyzer_for_suffix(suffix)
         if analyzer is None:
             if suffix in policy.source_suffixes:
-                unparsed.append(
-                    {
-                        "source": relative,
-                        "line": 1,
-                        "reason": f"unsupported source suffix: {suffix}",
-                    }
-                )
+                reason = f"unsupported source suffix: {suffix}"
+            elif suffix in KNOWN_SOURCE_SUFFIXES:
+                reason = f"undeclared source suffix: {suffix}"
+            else:
+                continue
+            unparsed.append({"source": relative, "line": 1, "reason": reason})
             continue
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             source = handle.read()

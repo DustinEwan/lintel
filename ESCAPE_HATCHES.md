@@ -41,14 +41,20 @@ The baseline is debt, not permission. It must shrink or be justified in review.
 
 ## 3. Unsupported syntax or language
 
-`[analysis] source_suffixes` declares which suffixes in a governed project are
-source code that must be understood. A declared suffix with no registered
-`SourceAnalyzerPort` adapter produces `unparsed_source`. A syntax that an
-adapter cannot parse completely produces the same rule.
+`[analysis] source_suffixes` is required and declares which suffixes in a
+governed project are source code that must be understood. A declared suffix
+with no registered `SourceAnalyzerPort` adapter produces `unparsed_source`.
+A syntax that an adapter cannot parse completely produces the same rule.
+
+The checker also has a built-in set of known source suffixes. A file with a
+known source suffix that is not declared in the config produces
+`unparsed_source` as `undeclared source suffix`. Only suffixes outside both
+sets are treated as data and skipped. This makes an unsupported `.rb` file an
+error by default rather than a silent pass.
 
 This rule is non-baselineable. The fix is to add or extend an analyzer, or
-rewrite the construct. Undeclared suffixes are data, not source, and are not
-scanned. Declaring more suffixes is a policy change and must be reviewed.
+rewrite the construct. Declaring more suffixes is a policy change and must be
+reviewed.
 
 ## 4. Semantic ambiguity
 

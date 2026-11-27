@@ -86,7 +86,7 @@ def validate_config(config, root=None):
             )
         )
 
-    analysis = config.get("analysis", {})
+    analysis = config.get("analysis")
     _check_keys(analysis, ANALYSIS_KEYS, "analysis", violations)
     if not isinstance(analysis, dict):
         violations.append(
@@ -94,9 +94,16 @@ def validate_config(config, root=None):
         )
         analysis = {}
     suffixes = analysis.get("source_suffixes")
-    if suffixes is not None and (
-        not isinstance(suffixes, list)
-        or not all(isinstance(item, str) for item in suffixes)
+    if suffixes is None:
+        violations.append(
+            _make_violation(
+                "config_invalid",
+                "analysis.source_suffixes is required",
+                location="analysis.source_suffixes",
+            )
+        )
+    elif not isinstance(suffixes, list) or not all(
+        isinstance(item, str) for item in suffixes
     ):
         violations.append(
             _make_violation(
@@ -349,7 +356,9 @@ def policy_from_config(config):
     boundary = config.get("boundary_concerns", {})
     wrapper_rules = config.get("wrapper_rules", {})
     use_cases = config.get("use_cases", {})
-    analysis = config.get("analysis", {})
+    analysis = config.get("analysis")
+    if not isinstance(analysis, dict) or "source_suffixes" not in analysis:
+        raise SystemExit("config analysis: source_suffixes is required")
     return {
         "version": 1,
         "default_region": default_layer,
