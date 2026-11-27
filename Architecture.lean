@@ -263,6 +263,82 @@ theorem test_transfers {C : Capability} {R : Type w} (program : Program C R)
     (test : program mock = expected) : program production = expected := by
   rw [← substitution program h, test]
 
+
+/-- A language of values allowed to cross a boundary. -/
+structure BoundaryDataLanguage where
+  Allowed : Type u → Prop
+  Forbidden : Type u → Prop
+  disjoint : ∀ {α : Type u}, Allowed α → Forbidden α → False
+  unit : Allowed PUnit
+  prod : ∀ {α β : Type u}, Allowed α → Allowed β → Allowed (α × β)
+  sum : ∀ {α β : Type u}, Allowed α → Allowed β → Allowed (α ⊕ β)
+
+/-- A capability whose operation and result types are boundary data. -/
+structure TypedCapability (L : BoundaryDataLanguage) where
+  Op : Type u
+  Result : Op → Type u
+  op_allowed : L.Allowed Op
+  result_allowed : ∀ op, L.Allowed (Result op)
+
+/-- Forget boundary typing and view a typed capability as a capability. -/
+def TypedCapability.toCapability {L : BoundaryDataLanguage}
+    (C : TypedCapability L) : Capability :=
+  { Op := C.Op
+    Result := C.Result }
+
+/-- Forbidden data cannot be used as a typed capability operation. -/
+theorem typed_op_not_forbidden {L : BoundaryDataLanguage} (C : TypedCapability L) :
+    ¬ L.Forbidden C.Op := by
+  intro h
+  exact L.disjoint C.op_allowed h
+
+/-- Forbidden data cannot be returned by a typed capability operation. -/
+theorem typed_result_not_forbidden {L : BoundaryDataLanguage}
+    (C : TypedCapability L) (op : C.Op) : ¬ L.Forbidden (C.Result op) := by
+  intro h
+  exact L.disjoint (C.result_allowed op) h
+
+/-- Allowed values compose into allowed products. -/
+theorem allowed_pair {L : BoundaryDataLanguage} {α β : Type u}
+    (ha : L.Allowed α) (hb : L.Allowed β) : ¬ L.Forbidden (α × β) := by
+  intro h
+  exact L.disjoint (L.prod ha hb) h
+
+/-- Allowed values compose into allowed sums. -/
+theorem allowed_sum {L : BoundaryDataLanguage} {α β : Type u}
+    (ha : L.Allowed α) (hb : L.Allowed β) : ¬ L.Forbidden (α ⊕ β) := by
+  intro h
+  exact L.disjoint (L.sum ha hb) h
+
+/-- A core program whose result is boundary data cannot return forbidden data. -/
+structure TypedProgram (L : BoundaryDataLanguage) (C : TypedCapability L) where
+  Result : Type u
+  result_allowed : L.Allowed Result
+  run : Program C.toCapability Result
+
+/-- A typed core program cannot return forbidden data. -/
+theorem typed_program_result_not_forbidden {L : BoundaryDataLanguage}
+    {C : TypedCapability L} (p : TypedProgram L C) : ¬ L.Forbidden p.Result := by
+  intro h
+  exact L.disjoint p.result_allowed h
+
+/-- A port that carries only boundary data. -/
+structure TypedCapabilityPort (A : Architecture) (L : BoundaryDataLanguage)
+    (C : TypedCapability L) extends Port A
+
+/-- An outer adapter implementing a typed boundary-data port. -/
+structure TypedCapabilityAdapter (A : Architecture) (L : BoundaryDataLanguage)
+    (C : TypedCapability L) (p : TypedCapabilityPort A L C)
+    extends Adapter A p.toPort where
+  implementation : Implementation C.toCapability
+
+/-- Equivalent typed adapters are substitutable. -/
+theorem typed_capability_adapter_substitution {A : Architecture} {L : BoundaryDataLanguage}
+    {C : TypedCapability L} {p : TypedCapabilityPort A L C} {R : Type w}
+    (program : Program C.toCapability R) (a b : TypedCapabilityAdapter A L C p)
+    (h : equivalent a.implementation b.implementation) :
+    program a.implementation = program b.implementation :=
+  substitution program h
 /-!
 ## Concrete finite instance
 

@@ -145,9 +145,16 @@ Proven properties:
 - `embedded_path`: inner dependency paths embed as outer dependency paths.
 - `inverted_call_avoids_adapter`: runtime calls through a port do not create core-to-adapter source dependencies.
 - `test_transfers`: a passing core test with a mock transfers to an equivalent production implementation.
+- `typed_op_not_forbidden`: a typed capability's operation type cannot be forbidden data.
+- `typed_result_not_forbidden`: a typed capability's result type cannot be forbidden data.
+- `allowed_pair` and `allowed_sum`: allowed values stay allowed when composed into products or sums.
+- `typed_program_result_not_forbidden`: a typed core program cannot return forbidden data.
+- `typed_capability_adapter_substitution`: equivalent typed adapters are substitutable.
 - Concrete `demoArchitecture`: an application module cannot reach a Postgres adapter, and `demo_acyclic` proves the example graph has no dependency cycle.
 
-The spec also defines `Port`, `Adapter`, `CapabilityPort`, `CapabilityAdapter`, `RegionOrder`, `EdgePolicy`, `PolicyArchitecture`, `StrictLayeredArchitecture`, `NestedArchitecture`, `InvertedCall`, and `Capability` to connect the dependency model with boundary contracts, composition, dependency inversion, and substitutability.
+The spec also defines `Port`, `Adapter`, `CapabilityPort`, `CapabilityAdapter`, `RegionOrder`, `EdgePolicy`, `PolicyArchitecture`, `StrictLayeredArchitecture`, `NestedArchitecture`, `InvertedCall`, `Capability`, `BoundaryDataLanguage`, `TypedCapability`, `TypedProgram`, `TypedCapabilityPort`, and `TypedCapabilityAdapter` to connect the dependency model with boundary contracts, composition, dependency inversion, substitutability, and boundary-data typing.
+
+`BoundaryDataLanguage` is an abstract parameter: a project defines `Allowed` as its DTO/value types and `Forbidden` as framework-owned types such as ORM rows, HTTP requests, or UI models, then supplies the disjointness proof. Typed capabilities, ports, and programs make that choice part of the contract rather than a convention.
 
 Acyclicity is scoped to dependency graphs extracted below the package or project-reference level. Cargo rejects ordinary package dependency cycles and TypeScript project references reject reference cycles; the remaining practical gaps are module-level cycles inside a crate/project and dev/test-only edges.
 
