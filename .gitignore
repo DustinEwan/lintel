@@ -4,3 +4,4 @@ __pycache__/
 node_modules/
 target/
 lintel.cache.json
+lintel.egg-info/

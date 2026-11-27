@@ -22,16 +22,20 @@ function describe(result, event) {
 }
 
 export default function lintelHooks(pi) {
+
   async function runHook(name, cwd) {
     const result = await pi.exec("lintel", ["hook", name], { cwd });
-    if (result.code !== 0) {
+    let payload;
+    try {
+      payload = JSON.parse(result.stdout);
+    } catch {
+      payload = null;
+    }
+    const valid = payload && typeof payload === "object" && !Array.isArray(payload);
+    if (result.killed || Number(result.code) > 1 || !valid) {
       return { block: true, context: result.stderr || `lintel hook ${name} failed`, findings: [] };
     }
-    try {
-      return JSON.parse(result.stdout);
-    } catch {
-      return { block: false, context: result.stdout.trim(), findings: [] };
-    }
+    return payload;
   }
 
   pi.on("tool_result", async (event, ctx) => {
