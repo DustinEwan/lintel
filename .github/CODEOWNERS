@@ -2,4 +2,4 @@
 /architecture.lock @architecture-owners
 /architecture.baseline.json @architecture-owners
 /PLAN.md @architecture-owners
-/github/workflows/ci.yml @architecture-owners
+/.github/workflows/ci.yml @architecture-owners
