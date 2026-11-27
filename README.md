@@ -227,7 +227,10 @@ python3 external/cli/architecture.py explain adapter_cli_concern
 python3 external/cli/architecture.py --root /path/to/project update-lock
 python3 external/cli/architecture.py --root /path/to/project accept-baseline
 python3 external/cli/architecture.py init --preset clean --output /path/to/new-project
+python3 external/cli/architecture.py --root /path/to/project generate-lean --out /path/to/GeneratedFacts.lean
 ```
+
+`generate-lean` emits a finite Lean module that imports `Architecture`, instantiates `Architecture` and `PolicyArchitecture`, and proves their fields from the emitted facts. Compile it with `lake env lean /path/to/GeneratedFacts.lean`.
 
 The Python extractor libraries are dependency-free. `adapters/python_extractor.py` uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
 Native extractor programs inside `adapters/` are build artifacts invoked by `external/cli` wrappers. `architecture.toml` records them under `[scopes.build_artifact]` and declares the wrapper surfaces under `[[executables]]`; their argv parsing is internal to the artifact, not the repository's public boundary.

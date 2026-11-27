@@ -31,6 +31,7 @@ CHECKER_ARTIFACTS = (
     "adapters/language/__init__.py",
     "adapters/language/native_analyzer.py",
     "adapters/language/python_analyzer.py",
+    "adapters/lean_generator.py",
     "external/cli/architecture.py",
     "external/cli/check_architecture.py",
     "external/cli/check_self.py",

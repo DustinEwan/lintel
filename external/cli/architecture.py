@@ -13,6 +13,7 @@ for path in (ROOT, ADAPTERS_ROOT):
         sys.path.insert(0, path)
 
 from adapters.runtime import ArchitectureRuntime
+from adapters import lean_generator
 from architecture_core.model import (
     CheckFactsRequest,
     PathOverrides,
@@ -89,6 +90,13 @@ def main():
     baseline = commands.add_parser("accept-baseline", help="accept current violations")
     baseline.add_argument("--config", default="architecture.toml")
 
+    generate = commands.add_parser(
+        "generate-lean", help="generate a finite Lean instance from facts"
+    )
+    generate.add_argument("--facts", help="JSON facts file; default collects self facts")
+    generate.add_argument("--config", default="architecture.toml")
+    generate.add_argument("--out", default="generated/ArchitectureFacts.lean")
+
     args = parser.parse_args()
     runtime = ArchitectureRuntime(args.root)
 
@@ -112,6 +120,18 @@ def main():
             print(f"unknown rule: {args.rule}", file=sys.stderr)
             return 2
         print(json.dumps(item, indent=2))
+        return 0
+    if args.command == "generate-lean":
+        policy = runtime.load_policy(args.config, None)
+        if args.facts:
+            facts = runtime.load_facts(args.facts)
+        else:
+            config = runtime.load_self_config(args.config, True)
+            facts = runtime.collect_self_facts(config, PathOverrides())
+        output = runtime.resolve(args.out)
+        os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+        lean_generator.write_instance(facts, policy, output)
+        print(f"Generated Lean instance at {args.out}.")
         return 0
     if args.command == "update-lock":
         runtime.update_lock(args.config)

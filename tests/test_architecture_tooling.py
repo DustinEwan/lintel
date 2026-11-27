@@ -9,7 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "adapters"))
 
-from adapters import architecture_config, contract_lock
+from adapters import architecture_config, contract_lock, lean_generator
 from adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from adapters.runtime import ArchitectureRuntime
 from architecture_core.checker import (
@@ -283,6 +283,27 @@ class ScaffoldTests(unittest.TestCase):
             with open(os.path.join(directory, "architecture.baseline.json"), encoding="utf-8") as handle:
                 self.assertEqual(json.load(handle)["violations"], [])
 
+
+
+
+class LeanGeneratorTests(unittest.TestCase):
+    def test_generated_instance_uses_spec_structures(self):
+        policy = real_policy()
+        facts = FactSet(
+            modules=(
+                Module("adapters.contract_facts"),
+                Module("architecture_core.checker"),
+            ),
+            dependencies=(
+                Dependency("adapters.contract_facts", "architecture_core.checker"),
+            ),
+        )
+        source = lean_generator.generate(facts, policy)
+        self.assertIn("import Architecture", source)
+        self.assertIn("def generatedArchitecture : Architecture where", source)
+        self.assertIn("core_cannot_reach_outer generatedArchitecture", source)
+        self.assertIn("def generatedPolicyArchitecture : PolicyArchitecture where", source)
+        self.assertIn("path_allowed generatedPolicyArchitecture", source)
 
 if __name__ == "__main__":
     unittest.main()
