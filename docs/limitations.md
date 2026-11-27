@@ -18,7 +18,7 @@ These limits remain true, but Lintel fails closed or provides a reviewed path in
 | Unrecognized Rust visibility forms, `include!`, `#[path]`, `macro_rules!` | Python scanner reports them explicitly | `unparsed_source` |
 | Rust workspace roots | Native extractor refuses to attribute all members to one package | `unparsed_source` |
 | Build-tagged Go files | Python scanner reports constrained files explicitly | `unparsed_source` |
-| Multi-line TypeScript `from` clauses and non-literal dynamic dependencies | Native TypeScript extractor handles them when its toolchain is available | Python scanner reports them as unparsed |
+| Multi-line TypeScript `from` clauses | Python scanner now joins multi-line import/export clauses before scanning; native extractor also handles them (PR #4) | Non-literal dynamic dependencies remain unparsed |
 | Toolchain-backed extraction unavailable | Python scanners are dependency-free and are the installed default | Native extractors remain source-checkout tools requiring Rust, Go, or Node/TypeScript |
 | Reflection, generated code, runtime dependency injection | Detected cases become `semantic_review` with fingerprints and reasons | Review decision is required; no automatic pass |
 
@@ -43,7 +43,6 @@ These are local, testable changes in language adapters. Only these gaps have Git
 
 | Gap | Issue | Current behavior | Location | Work required |
 | --- | --- | --- | --- | --- |
-| Python TypeScript multi-line `from` clauses | [#1](https://github.com/DustinEwan/lintel/issues/1) | Reported as `unparsed_source` | `lintel/adapters/typescript_extractor.py` | Extend import/export scanning to span newlines; native extractor already covers this |
 | Rust literal `#[path]` and `include!` | [#2](https://github.com/DustinEwan/lintel/issues/2) | Reported as `unparsed_source` | `lintel/adapters/rust_extractor.py` | Resolve literal file redirects/includes to module facts |
 | Go build constraints | [#3](https://github.com/DustinEwan/lintel/issues/3) | Every build-tagged file is reported as `unparsed_source` | `lintel/adapters/go_extractor.py` | Parse `//go:build` and `// +build`, select files by host `GOOS`/`GOARCH`, and keep indeterminate constraints unparsed |
 
