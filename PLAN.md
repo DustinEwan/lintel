@@ -107,6 +107,7 @@ Line numbers should not be part of the fingerprint unless no stable symbol exist
 ### Ratchet semantics
 
 - New violation not in baseline: fail.
+- Only architecture violations are baselineable; config errors, contract drift, unparsed source, and baseline errors always fail.
 - Existing violation removed: check may pass, but CI requires baseline acceptance so the ratchet stays clean.
 - Baseline additions require an explicit command and produce a visible diff.
 - Policy changes require an explicit lock update and produce a visible diff.

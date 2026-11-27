@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import sys
@@ -9,7 +10,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "adapters"))
 
-from adapters import architecture_config, contract_lock
+from adapters import architecture_config, contract_facts, contract_lock
 from adapters.runtime import ArchitectureRuntime
 from architecture_core.checker import (
     check_boundary_concerns,
@@ -150,6 +151,14 @@ class BoundaryConcernTests(unittest.TestCase):
         )
         self.assertEqual(check_boundary_concerns(facts, policy), ())
 
+    def test_plain_attribute_use_is_detected(self):
+        tree = ast.parse(
+            "import sys\nvalue = sys.argv[1]\nimport os\nenv = os.environ\n"
+        )
+        found = {item[0] for item in contract_facts._python_concerns(tree)}
+        self.assertIn("argv", found)
+        self.assertIn("env", found)
+
 
 class WrapperOperationTests(unittest.TestCase):
     def test_composition_is_not_fat(self):
@@ -194,6 +203,22 @@ class RatchetTests(unittest.TestCase):
             "baseline_stale",
             rules(compare_baseline((), [{"fingerprint": key, "rule": "edge_not_allowed"}])),
         )
+
+    def test_non_baselineable_violations_pass_through(self):
+        violation = Violation("unparsed_source", "bad", {"location": "a.py:1"})
+        key = violation_fingerprint(violation)
+        result = compare_baseline(
+            (violation,), [{"fingerprint": key, "rule": "unparsed_source"}]
+        )
+        self.assertEqual(result, (violation,))
+
+    def test_accept_baseline_rejects_contract_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = ArchitectureRuntime(directory)
+            with self.assertRaises(SystemExit):
+                runtime.accept_baseline(
+                    "architecture.toml", (Violation("config_invalid", "bad"),)
+                )
 
 
 class LockTests(unittest.TestCase):

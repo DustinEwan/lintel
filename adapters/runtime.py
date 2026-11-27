@@ -21,7 +21,7 @@ from architecture_core.model import (
     policy_from_dict,
     violation_to_dict,
 )
-from architecture_core.ratchet import compare_baseline, violation_fingerprint
+from architecture_core.ratchet import compare_baseline, is_baselineable, violation_fingerprint
 
 DEFAULT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_CORE_ROOT = "architecture_core"
@@ -315,6 +315,13 @@ class ArchitectureRuntime:
     def accept_baseline(self, path, violations):
         config_path = self.resolve(path or DEFAULT_CONFIG)
         baseline = contract_lock.baseline_path(self.root)
+        rejected = sorted(
+            {item.rule for item in violations if not is_baselineable(item.rule)}
+        )
+        if rejected:
+            raise SystemExit(
+                "cannot baseline non-baselineable rules: " + ", ".join(rejected)
+            )
         accepted = []
         seen = set()
         for item in violations:

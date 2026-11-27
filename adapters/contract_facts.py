@@ -92,6 +92,16 @@ def _python_concerns(tree):
                 elif module in PY_ENTRYPOINT_ONLY_IMPORTS:
                     found.add(("argv_parse", "entrypoint_only", node.lineno, module))
             continue
+        if isinstance(node, ast.Attribute):
+            expression = ast.unparse(node)
+            if expression == "sys.argv":
+                found.add(("argv", "entrypoint_only", node.lineno, expression))
+            elif expression == "os.environ":
+                found.add(("env", "mechanism", node.lineno, expression))
+            elif expression == "sys.exit":
+                found.add(("exit", "entrypoint_only", node.lineno, expression))
+            elif expression == "os._exit":
+                found.add(("exit", "entrypoint_only", node.lineno, expression))
         if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
             if getattr(node.exc.func, "id", "") == "SystemExit":
                 found.add(("exit", "mechanism", node.lineno, "SystemExit"))

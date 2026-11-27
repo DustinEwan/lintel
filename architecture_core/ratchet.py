@@ -4,6 +4,7 @@ import json
 import re
 
 from .model import Violation
+from .rules import is_baselineable
 
 _TRAILING_LINE = re.compile(r"(?::\d+)+$")
 
@@ -36,7 +37,9 @@ def violation_fingerprint(violation):
 
 def compare_baseline(violations, accepted):
     accepted_map = {
-        item.get("fingerprint", fingerprint(item)): item for item in accepted
+        item.get("fingerprint", fingerprint(item)): item
+        for item in accepted
+        if is_baselineable(item.get("rule", item.get("violation_rule", "")))
     }
     current_map = {
         violation_fingerprint(item): item for item in violations
@@ -44,6 +47,9 @@ def compare_baseline(violations, accepted):
     result = []
 
     for key, item in current_map.items():
+        if not is_baselineable(item.rule):
+            result.append(item)
+            continue
         if key in accepted_map:
             continue
         result.append(

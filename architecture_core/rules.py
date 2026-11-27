@@ -8,17 +8,18 @@ class RuleSpec:
     id: str
     summary: str
     fix: str
+    baselineable: bool = True
 
 
 RULES = (
-    RuleSpec("config_invalid", "Configuration is structurally invalid.", "Correct the configuration field."),
-    RuleSpec("config_unknown_key", "Configuration contains an unknown key.", "Remove the key or update the schema."),
-    RuleSpec("config_bad_reference", "Configuration references an undeclared name.", "Declare the target or correct the reference."),
-    RuleSpec("config_pattern_overlap", "Configuration patterns overlap ambiguously.", "Give one scope a distinct priority or pattern."),
-    RuleSpec("config_missing_executable", "Declared executable path does not exist.", "Create the file or remove the declaration."),
-    RuleSpec("contract_drift", "Committed contract does not match current inputs.", "Run the explicit lock update command and review the diff."),
-    RuleSpec("baseline_violation", "Violation is not in the accepted baseline.", "Fix the violation or explicitly accept the new baseline entry."),
-    RuleSpec("baseline_stale", "Accepted baseline entry no longer matches.", "Run the explicit baseline acceptance command to tighten the ratchet."),
+    RuleSpec("config_invalid", "Configuration is structurally invalid.", "Correct the configuration field.", False),
+    RuleSpec("config_unknown_key", "Configuration contains an unknown key.", "Remove the key or update the schema.", False),
+    RuleSpec("config_bad_reference", "Configuration references an undeclared name.", "Declare the target or correct the reference.", False),
+    RuleSpec("config_pattern_overlap", "Configuration patterns overlap ambiguously.", "Give one scope a distinct priority or pattern.", False),
+    RuleSpec("config_missing_executable", "Declared executable path does not exist.", "Create the file or remove the declaration.", False),
+    RuleSpec("contract_drift", "Committed contract does not match current inputs.", "Run the explicit lock update command and review the diff.", False),
+    RuleSpec("baseline_violation", "Violation is not in the accepted baseline.", "Fix the violation or explicitly accept the new baseline entry.", False),
+    RuleSpec("baseline_stale", "Accepted baseline entry no longer matches.", "Run the explicit baseline acceptance command to tighten the ratchet.", False),
     RuleSpec("missing_executable", "Declared executable produced no module facts.", "Check the executable path and its source language."),
     RuleSpec("undeclared_executable", "Discovered executable surface is not declared.", "Declare the surface in [[executables]] or scope it as a build artifact with a wrapper."),
     RuleSpec("executable_owner_mismatch", "Executable owner does not match its layer.", "Move the surface or correct the owner declaration."),
@@ -36,7 +37,7 @@ RULES = (
     RuleSpec("forbidden_import", "Core imports a forbidden module.", "Remove the import or introduce a port."),
     RuleSpec("edge_not_allowed", "Layer dependency is not allowed.", "Move code or update an intentional, reviewed policy."),
     RuleSpec("cycle", "Dependency cycle detected.", "Break the cycle by introducing a port or moving shared data."),
-    RuleSpec("unparsed_source", "Source could not be parsed completely.", "Add support for the syntax or rewrite it into a supported construct."),
+    RuleSpec("unparsed_source", "Source could not be parsed completely.", "Add support for the syntax or rewrite it into a supported construct.", False),
 )
 
 RULE_INDEX = {item.id: item for item in RULES}
@@ -44,6 +45,11 @@ RULE_INDEX = {item.id: item for item in RULES}
 
 def rule_spec(rule_id):
     return RULE_INDEX.get(rule_id)
+
+
+def is_baselineable(rule_id):
+    spec = rule_spec(rule_id)
+    return True if spec is None else spec.baselineable
 
 
 def catalog_data():
