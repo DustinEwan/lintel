@@ -70,6 +70,34 @@ def resolve_from(module, names, level, current, is_package, modules, local_top):
             targets.append(resolved)
     return targets
 
+def literal_int(node):
+    if (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, int)
+        and not isinstance(node.value, bool)
+    ):
+        return node.value
+    return None
+
+
+def keyword_value(call, name):
+    for keyword in call.keywords:
+        if keyword.arg == name:
+            return keyword.value
+    return None
+
+
+def resolve_relative(name, level, package, current, is_package, modules, local_top):
+    base = package or current_package(current, is_package)
+    parts = base.split(".") if base else []
+    if level > 1:
+        parts = parts[: max(0, len(parts) - (level - 1))]
+    if not parts:
+        return None
+    dotted = name.lstrip(".")
+    target = ".".join(parts + ([dotted] if dotted else []))
+    return resolve_dotted(target, modules, local_top)
+
 
 def dynamic_aliases(tree):
     importlib_names = {"importlib"}
@@ -86,15 +114,19 @@ def dynamic_aliases(tree):
     return importlib_names, import_module_names
 
 
-def is_dynamic_import(node, importlib_names, import_module_names):
+def dynamic_call_kind(node, importlib_names, import_module_names):
     if not isinstance(node, ast.Call):
-        return False
+        return None
     func = node.func
     if isinstance(func, ast.Name):
-        return func.id == "__import__" or func.id in import_module_names
+        if func.id == "__import__":
+            return "builtin"
+        if func.id in import_module_names:
+            return "importlib"
     if isinstance(func, ast.Attribute) and func.attr in ("import_module", "find_spec"):
-        return isinstance(func.value, ast.Name) and func.value.id in importlib_names
-    return False
+        if isinstance(func.value, ast.Name) and func.value.id in importlib_names:
+            return "importlib"
+    return None
 
 
 def literal_string(node):
@@ -157,6 +189,7 @@ def extract(root):
             )
 
         for node in ast.walk(tree):
+            dynamic_kind = dynamic_call_kind(node, importlib_names, import_module_names)
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     record(resolve_dotted(alias.name, modules, local_top), node.lineno, "import")
@@ -174,17 +207,93 @@ def extract(root):
                     local_top,
                 ):
                     record(target, node.lineno, "import")
-            elif is_dynamic_import(node, importlib_names, import_module_names):
+            elif dynamic_kind:
                 argument = node.args[0] if node.args else None
-                target = literal_string(argument)
-                if target:
-                    record(resolve_dotted(target, modules, local_top), node.lineno, "dynamic_import")
-                else:
+                name = literal_string(argument)
+                if not name:
                     unparsed.append(
                         {
                             "source": source,
                             "line": node.lineno,
                             "reason": "non-literal dynamic import",
+                        }
+                    )
+                    continue
+
+                leading = len(name) - len(name.lstrip("."))
+                resolved = None
+                if dynamic_kind == "importlib":
+                    if leading:
+                        package_node = keyword_value(node, "package")
+                        package = (
+                            literal_string(package_node)
+                            if package_node is not None
+                            else None
+                        )
+                        if package_node is not None and package is None:
+                            unparsed.append(
+                                {
+                                    "source": source,
+                                    "line": node.lineno,
+                                    "reason": "non-literal dynamic import package",
+                                }
+                            )
+                            continue
+                        if package is None:
+                            unparsed.append(
+                                {
+                                    "source": source,
+                                    "line": node.lineno,
+                                    "reason": "relative dynamic import without package",
+                                }
+                            )
+                            continue
+                        resolved = resolve_relative(
+                            name,
+                            leading,
+                            package,
+                            current,
+                            is_package,
+                            modules,
+                            local_top,
+                        )
+                    else:
+                        resolved = resolve_dotted(name, modules, local_top)
+                else:
+                    level_node = keyword_value(node, "level")
+                    if level_node is None and len(node.args) >= 5:
+                        level_node = node.args[4]
+                    level = literal_int(level_node) if level_node is not None else 0
+                    if level_node is not None and level is None:
+                        unparsed.append(
+                            {
+                                "source": source,
+                                "line": node.lineno,
+                                "reason": "non-literal dynamic import level",
+                            }
+                        )
+                        continue
+                    if level > 0 or leading:
+                        resolved = resolve_relative(
+                            name,
+                            level or leading,
+                            None,
+                            current,
+                            is_package,
+                            modules,
+                            local_top,
+                        )
+                    else:
+                        resolved = resolve_dotted(name, modules, local_top)
+
+                if resolved:
+                    record(resolved, node.lineno, "dynamic_import")
+                else:
+                    unparsed.append(
+                        {
+                            "source": source,
+                            "line": node.lineno,
+                            "reason": "unresolved relative dynamic import",
                         }
                     )
             elif (

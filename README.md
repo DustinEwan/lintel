@@ -206,7 +206,7 @@ Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` 
 Limits:
 
 - Python extractors are static source scanners; native extractors use language toolchains. Reflection, generated code, and runtime dependency injection remain out of scope.
-- `tools/extract_python.py` handles absolute and relative imports, `__init__.py` packages, `src/` layouts, and literal `importlib`/`__import__` calls. Parse errors, non-literal dynamic imports, and `eval`/`exec` are reported as unparsed.
+- `tools/extract_python.py` handles absolute and relative imports, `__init__.py` packages, `src/` layouts, and literal `importlib`/`__import__` calls. Relative dynamic imports are resolved against `package=` or the current package; parse errors, non-literal or unresolved dynamic imports, and `eval`/`exec` are reported as unparsed.
 - Rust `use` items are resolved to the nearest known local module; `pub use`, `pub(crate) use`, `pub(super) use`, `pub(in path) use`, and `extern crate` are included. Unrecognized visibility forms are reported as unparsed, as are `include!`, `#[path]`, and `macro_rules!`. The native extractor parses Rust ASTs with `syn`, reads the package name from `cargo metadata`, and reports workspace roots as unparsed instead of attributing all members to the first package.
 - The Python Go scanner parses import declarations from source. `go-extractor` uses `go list -json` plus `go/parser` for package paths and import positions. Build-tagged and unparseable files are reported as unparsed.
 - The Python TypeScript scanner handles single-line static imports/exports, `require()`, and `import()` including import attributes; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.
