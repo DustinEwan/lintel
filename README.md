@@ -13,7 +13,7 @@ flowchart LR
     C -. runtime call via port .-> A
 ```
 
-Solid arrows are source dependencies; dashed arrows are runtime calls.
+Solid arrows show source dependencies; the dashed arrow shows a runtime call through a port. Adapters still depend inward on core-owned contracts.
 
 That discipline is easy to state and hard to keep, especially in agentic codebases where many edits are generated quickly and conventions are learned from examples. Lintel turns the shared rule into machine-checkable architecture facts, a decidable policy, a formal Lean model, and a review workflow for cases that cannot be decided statically. It separates new violations from existing debt and requires explicit, fingerprinted decisions for semantic exceptions.
 
@@ -79,22 +79,15 @@ Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); semant
 
 ### Install and usage
 
-No published distribution exists yet; install from this source checkout. Lintel requires Python 3.11+.
+Requires Python 3.11+. Install from this source checkout:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
-lintel --root /path/to/project check
-lintel --root /path/to/project check --format json
-lintel list-rules
-lintel explain adapter_cli_concern
-lintel --root /path/to/project update-lock
-lintel --root /path/to/project accept-baseline
-lintel --root /path/to/project generate-lean --out /path/to/LintelFacts.lean [--no-check]
 ```
 
-When the governed project is the current directory, omit `--root`; it defaults there:
+Quickstart from the governed project directory:
 
 ```sh
 lintel check
@@ -103,44 +96,9 @@ lintel check facts.json --config lintel.toml
 lintel generate-lean --facts facts.json
 ```
 
-`check --out facts.json` writes merged facts only after config and lock validation succeed. Rechecking a facts file with `--config` (the default `lintel.toml` or an explicit path) validates the lock and applies the baseline; `--policy` is fixture compatibility and skips lock and baseline handling.
+`--root` defaults to the current directory; set it only when running elsewhere. For a new project, run `lintel init --preset clean --output /path/to/new-project`.
 
-`lintel init` rewrites config and baseline files, so use it only for new projects:
-
-```sh
-lintel init --preset clean --output /path/to/new-project
-```
-
-Wire the generated hooks into your harness using `HARNESS_SETUP.md`. The installed CLI uses dependency-free Python analyzers by default.
-
-Source checkout only: extractor surfaces backed by language toolchains.
-
-```sh
-python3 lintel/cli/extract_rust.py --root /path/to/project --out rust-facts.json
-python3 lintel/cli/extract_rust_native.py --root /path/to/project --out rust-native-facts.json
-python3 lintel/cli/extract_go.py --root /path/to/project --out go-facts.json
-python3 lintel/cli/extract_typescript.py --root /path/to/project --out ts-facts.json
-python3 lintel/cli/extract_python.py --root /path/to/project --out py-facts.json
-python3 lintel/cli/extract_go_native.py --root /path/to/project --out go-native-facts.json
-npm ci --prefix lintel
-python3 lintel/cli/extract_typescript_native.py --root /path/to/project --out ts-native-facts.json
-python3 lintel/cli/check_facts.py rust-facts.json --config lintel.toml
-python3 lintel/cli/check_facts.py rust-facts.json --policy tests/fixtures/policy.json
-python3 lintel/cli/check_self.py
-```
-
-`generate-lean` emits a finite Lean module that imports `Lintel` and instantiates its structures and theorems from the facts. Accepted `semantic_review` findings come from `lintel.baseline.json` (override with `--baseline`); all other findings are pending. By default it then runs `lake build` and checks the generated module with `lake env lean`; use `--no-check` when the Lean toolchain is unavailable.
-
-The Python extractor libraries are dependency-free. `lintel/adapters/python_extractor.py` uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `lintel/adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
-Native extractor programs inside `lintel/adapters/` are build artifacts invoked by `lintel/cli` wrappers. `lintel.toml` records them under `[scopes.build_artifact]` and declares the wrapper surfaces under `[[executables]]`; their argv parsing is internal to the artifact, not the repository's public boundary.
-Checks are locked by default. `lintel.toml` is the contract; `lintel.lock` binds its semantic hash, the rule catalog, the checker implementation artifacts, and the baseline hash. `lintel.baseline.json` ratchets existing violations: new violations fail, and removed violations require an explicit acceptance to keep the baseline clean. Only architecture violations are baselineable; config errors, contract drift, unparsed source, and baseline errors cannot be accepted away. Use `--no-lock` only for bootstrap and debugging. Contract files are review-protected through `.github/CODEOWNERS`.
-
-Validation is incremental by default. `lintel.cache.json` is an untracked, content-addressed cache keyed by the lock digests, policy, Python version, tool-root artifacts, and per-file hashes. A cache hit reuses extracted facts; a change re-extracts only when required and always re-runs the full global `check()` on the merged `FactSet`. `generate-lean` also skips repeated generated-instance checks when the generated file, `lintel/Lintel.lean`, and `lintel/lean-toolchain` are unchanged. Use `--no-cache` with `check` or `generate-lean` to force full extraction and rechecking. The cache is derived state: delete it at any time.
-Core logic lives in `lintel/core/`: pure fact types, policy matching, checker rules, ports, hooks, review decisions, and use cases. `lintel/adapters/` contains concrete mechanisms that translate source syntax into facts and perform file/process I/O; `lintel/adapters/runtime.py` composes those mechanisms behind core ports. `lintel/cli/` contains executable surfaces only. Dependencies point inward: entrypoints -> adapters -> core; core has no CLI, subprocess, JSON-I/O, or filesystem dependencies.
-
-Boundary-concern and wrapper-operation detection lives behind `SourceAnalyzerPort`. `lintel/adapters/language/` contains one analyzer per supported source language, registered by suffix; `lintel/adapters/contract_facts.py` only composes their normalized facts with scope assignments. Ambiguous cases requiring intent are listed in `SEMANTIC_SCENARIOS.md`.
-
-Python parse failures are recorded in an `unparsed` array and reported as `unparsed_source` violations. Native analyzers use language-specific token detection without parser-level `unparsed` facts. Every source suffix in a governed project must be declared in `[analysis] source_suffixes`; undeclared or unsupported suffixes fail closed as `unparsed_source`.
+Full command reference, native extractors, lock/cache behavior, and implementation layout are in [docs/usage.md](docs/usage.md). Wire generated hooks into a harness with [HARNESS_SETUP.md](HARNESS_SETUP.md). The installed CLI uses dependency-free Python analyzers by default.
 
 ## Agent and harness integration
 
@@ -160,7 +118,6 @@ lintel hook <session-start|post-edit|stop|review-request>
 | `review-request` | List available semantic review decisions. | No |
 
 It prints JSON with `block`, `context`, `findings`, and `commands`. Findings carry stable fingerprints. `HARNESS_SETUP.md` shows hook wiring for Claude Code, OpenCode, Pi, and a generic shell fallback.
-
 
 Semantic decisions are explicit:
 
