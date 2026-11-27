@@ -8,7 +8,8 @@
       "patterns": [
         "*::domain*",
         "example.com/app/internal/domain*",
-        "src/domain/*"
+        "src/domain/*",
+        "py_app.domain*"
       ]
     },
     {
@@ -17,7 +18,8 @@
       "patterns": [
         "*::app*",
         "example.com/app/internal/app*",
-        "src/app/*"
+        "src/app/*",
+        "py_app.app*"
       ]
     },
     {
@@ -26,7 +28,8 @@
       "patterns": [
         "*::adapters*",
         "example.com/app/internal/adapters*",
-        "src/infra/*"
+        "src/infra/*",
+        "py_app.infra*"
       ]
     },
     {
@@ -42,6 +45,6 @@
     "external": ["external"]
   },
   "forbidden": {
-    "core": ["sqlx", "net/http", "src/infra/*", "express", "fs", "path"]
+    "core": ["sqlx", "net/http", "src/infra/*", "express", "fs", "path", "sqlalchemy", "django", "flask", "fastapi", "py_app.infra*"]
   }
 }
