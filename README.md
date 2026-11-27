@@ -6,6 +6,13 @@ Lintel checks and governs inward architecture boundaries for agentic codebases. 
 
 Clean, Hexagonal, Onion, and related architectures are variants of one idea: keep business logic at the center and push frameworks, I/O, UI, and persistence to the edge. They differ in vocabulary—ports and adapters, rings, layers—but share the same dependency rule: source dependencies point inward, the core defines contracts, outer code implements them, and the application can be exercised without infrastructure.
 
+```mermaid
+flowchart LR
+    E["Entrypoints: argv, env, exit"] --> A["Adapters: I/O, toolchains, frameworks"]
+    A --> C["Core: facts, policy, use cases"]
+    C -. ports and contracts .-> A
+```
+
 That discipline is easy to state and hard to keep, especially in agentic codebases where many edits are generated quickly and conventions are learned from examples. Lintel turns the shared rule into machine-checkable architecture facts, a decidable policy, a formal Lean model, and a review workflow for cases that cannot be decided statically. It separates new violations from existing debt and requires explicit, fingerprinted decisions for semantic exceptions.
 
 For agents, this makes the boundary contract visible at edit time: hooks report violations, `lintel check` gives the same answer everywhere, `lintel.lock` prevents silent rule changes, and semantic review records why an exception was accepted. The result is architecture intent that survives long sequences of autonomous edits.
@@ -34,21 +41,39 @@ CI runs both `lake build` and the Python checker pipeline on pushes and pull req
 
 `lintel/cli/extract_*.py` are CLI entrypoints. They call the extractor libraries in `lintel/adapters/*_extractor.py`, which scan a project root and emit JSON facts:
 
+```mermaid
+flowchart LR
+    S["Source files"] --> X["Extractors"]
+    X --> F["Facts"]
+    F --> C["Check with policy, lock, baseline"]
+    C --> V["Violations and semantic review"]
+    F --> L["generate-lean"]
+    L --> K["lake check"]
+```
+
 - `modules`: `{name, path, package?}` entries.
 - `dependencies`: `{from, to, kind, source, line}` entries.
 
-`lintel/cli/check_facts.py` reads facts plus architecture configuration from `lintel.toml` (`--config`) or a JSON policy file (`--policy`). It reports:
+| Finding | Meaning |
+| --- | --- |
+| `core_outward` | A core module depends on a non-core module. |
+| `forbidden_import` | A core module imports a forbidden target. |
+| `edge_not_allowed` | A source region has no permission for the target region. |
+| `cycle` | A module dependency cycle. |
+| `unparsed_source` | Declared source could not be parsed or has no analyzer. |
+| `semantic_review` | Detectable ambiguity needs a judge or human review. |
 
-- `core_outward`: a core module depends on a non-core module.
-- `forbidden_import`: a core module imports a forbidden target.
-- `edge_not_allowed`: a source region has no permission for the target region.
-- `cycle`: a module dependency cycle.
+| Concept | Configuration | Role |
+| --- | --- | --- |
+| Layers | `[layers.*]` | Inward rings; shell-style `fnmatch`, sorted by `priority`, first match wins. `core = true` maps to `Core` in the Lean model. |
+| Default layer | `default_layer` | Unowned fallback for dependencies with no matching layer. |
+| Scopes | `[scopes.*]` | Test, example, fixture, generated, and vendor contexts—not architectural layers. |
+| Executables | `[[executables]]` | CLI surfaces with an owning layer. |
+| Source suffixes | `[analysis] source_suffixes` | Governed source files; undeclared or unsupported suffixes fail closed. |
 
-- `unparsed_source`: declared source could not be parsed or has no analyzer.
-- `semantic_review`: detectable ambiguity needs a judge or human review.
-Layer patterns use shell-style `fnmatch`; layers are sorted by `priority` and the first matching layer wins. `default_layer` catches dependencies with no matching layer; it is an unowned fallback, not an owned layer. Layers with `core = true` correspond to `Core` in the Lean model. `tests/fixtures/policy.json` remains an example JSON policy covering Rust, Go, and TypeScript module names.
-`lintel.toml` separates three concepts: `[layers.*]` defines inward dependency rings, `[scopes.*]` identifies test/example/fixture/generated/vendor contexts, and `[[executables]]` declares CLI surfaces with their owning layer. `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core.
-`[analysis] source_suffixes` is required and declares which file suffixes are governed source. A declared suffix without an analyzer, or a known source suffix that is not declared, is an `unparsed_source` error. Exception rules are formalized in `ESCAPE_HATCHES.md`; semantic ambiguity scenarios are listed in `SEMANTIC_SCENARIOS.md`.
+`ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core. `tests/fixtures/policy.json` is an example JSON policy covering Rust, Go, and TypeScript module names.
+
+Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); semantic ambiguity scenarios are listed in [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md).
 
 ### Install and usage
 
@@ -125,7 +150,15 @@ Every harness calls one command:
 lintel hook <session-start|post-edit|stop|review-request>
 ```
 
-It prints JSON with `block`, `context`, `findings`, and `commands`. Findings carry stable fingerprints. `block` is true for `post-edit` and `stop` when unresolved violations exist. `HARNESS_SETUP.md` shows hook wiring for Claude Code, OpenCode, Pi, and a generic shell fallback.
+| Hook | Purpose | `block` |
+| --- | --- | --- |
+| `session-start` | Seed the agent with the inward-dependency rule. | No |
+| `post-edit` | Check after each edit. | Yes when findings remain |
+| `stop` | Final check before completion. | Yes when findings remain |
+| `review-request` | List available semantic review decisions. | No |
+
+It prints JSON with `block`, `context`, `findings`, and `commands`. Findings carry stable fingerprints. `HARNESS_SETUP.md` shows hook wiring for Claude Code, OpenCode, Pi, and a generic shell fallback.
+
 
 Semantic decisions are explicit:
 
@@ -133,7 +166,13 @@ Semantic decisions are explicit:
 lintel review <fingerprint> --decision compliant --reason "port is intentionally typed"
 ```
 
-`compliant` accepts the finding and records its source for generated Lean. `violating` and `needs-human-review` leave the finding pending. Every decision requires a reason and updates the baseline and lock through a reviewable diff.
+| Decision | Effect |
+| --- | --- |
+| `compliant` | Accepts the finding and records its source for generated Lean. |
+| `violating` | Leaves the finding pending. |
+| `needs-human-review` | Leaves the finding pending. |
+
+Every decision requires a reason and updates the baseline and lock through a reviewable diff.
 
 Dogfooding: `python3 lintel/cli/check_self.py` parses CLI arguments, builds the runtime adapter, and calls the self-check use case. The use case asks ports for config, facts, and checking; `lintel/adapters/runtime.py` performs extraction, merging, and file I/O behind those ports. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
 Dogfood configuration and policy live in `lintel.toml` at the repo root:
