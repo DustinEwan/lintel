@@ -13,6 +13,7 @@ from lintel.adapters import config as config_adapter, contract_facts, contract_l
 import lintel.adapters.runtime as runtime_module
 from lintel.adapters import agent_files
 from lintel.adapters import typescript_extractor
+from lintel.adapters import rust_extractor
 from lintel.core import hooks, review
 from lintel.adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from lintel.adapters.runtime import LintelRuntime
@@ -862,6 +863,73 @@ class TypeScriptExtractorTests(unittest.TestCase):
                 data["unparsed"][0]["reason"],
                 "dynamic dependency with non-literal specifier",
             )
+
+
+class RustExtractorTests(unittest.TestCase):
+    @staticmethod
+    def write(directory, relative, content):
+        path = os.path.join(directory, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(content)
+
+    def test_literal_path_attribute_maps_file_to_declared_module(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "Cargo.toml", '[package]\nname = "demo"\nversion = "0.1.0"\n')
+            self.write(directory, "src/lib.rs", '#[path = "custom.rs"]\nmod inner;\n')
+            self.write(directory, "src/custom.rs", "use crate::helper;\n")
+            self.write(directory, "src/helper.rs", "pub fn helper() {}\n")
+
+            data = rust_extractor.extract(directory)
+            modules = {item["name"]: item["path"] for item in data["modules"]}
+            self.assertEqual(modules.get("demo::inner"), "src/custom.rs")
+            self.assertNotIn("demo::custom", modules)
+            dependencies = {
+                (item["from"], item["to"], item["source"])
+                for item in data["dependencies"]
+            }
+            self.assertIn(("demo::inner", "demo::helper", "src/custom.rs"), dependencies)
+            self.assertEqual(data["unparsed"], [])
+
+    def test_literal_include_attributes_items_to_including_module(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "Cargo.toml", '[package]\nname = "demo"\nversion = "0.1.0"\n')
+            self.write(directory, "src/lib.rs", 'include!("defs.rs");\n')
+            self.write(directory, "src/defs.rs", "use crate::helper;\n")
+            self.write(directory, "src/helper.rs", "pub fn helper() {}\n")
+
+            data = rust_extractor.extract(directory)
+            modules = {item["name"] for item in data["modules"]}
+            self.assertNotIn("demo::defs", modules)
+            dependencies = {
+                (item["from"], item["to"], item["source"])
+                for item in data["dependencies"]
+            }
+            self.assertIn(("demo", "demo::helper", "src/defs.rs"), dependencies)
+            self.assertEqual(data["unparsed"], [])
+
+    def test_non_literal_forms_and_macros_stay_unparsed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(
+                directory,
+                "src/lib.rs",
+                'include!(format!("{}.rs", name));\n'
+                "#[path = module_name()] mod inner;\n"
+                "macro_rules! generate { () => {} }\n",
+            )
+            data = rust_extractor.extract(directory)
+            reasons = {item["reason"] for item in data["unparsed"]}
+            self.assertIn("include! can inject dependencies", reasons)
+            self.assertIn("#[path] changes module paths", reasons)
+            self.assertIn("macro_rules! can generate imports", reasons)
+            self.assertEqual(data["dependencies"], [])
+
+    def test_missing_literal_include_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "src/lib.rs", 'include!("missing.rs");\n')
+            data = rust_extractor.extract(directory)
+            self.assertEqual(len(data["unparsed"]), 1)
+            self.assertEqual(data["unparsed"][0]["reason"], "include! target not found")
 
 if __name__ == "__main__":
     unittest.main()
