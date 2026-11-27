@@ -178,7 +178,7 @@ This verifies the **formal model**. The adapters in `adapters/` bridge real sour
 
 Toolchain: Lean 4.36.0, pinned in `lean-toolchain`.
 
-Verify with:
+Requires `lake` on `PATH`. Verify with:
 
 ```sh
 lake build
