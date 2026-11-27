@@ -1,0 +1,6 @@
+version = 1
+schema_version = 1
+config_sha256 = "041c78c14895fe95223717b88d0205fae4d6ae2c76ba69cbd6bcc7cbb039473c"
+rule_catalog_sha256 = "1bec075f2407ba8083eca618588be1cadc945757e098cfd92d59f95da1de2893"
+checker_artifact_sha256 = "b58d43b464fef0ad7d62faf3a6b899141157edfe17a8a13b046fbff5a05e4030"
+baseline_sha256 = "2b4251b79e7609afb6857815ec0f9c791125e4b296e31b370cfdc97c20261712"
