@@ -20,6 +20,7 @@ TOP_LEVEL_KEYS = {
     "scope_rules",
     "wrapper_rules",
     "use_cases",
+    "analysis",
 }
 
 PATH_KEYS = {"core_root", "adapters_root", "entrypoints_root"}
@@ -31,6 +32,8 @@ BOUNDARY_KEYS = {"allowed_regions"}
 SCOPE_RULE_KEYS = {"forbidden_edges", "conventions", "excluded_scopes"}
 WRAPPER_KEYS = {"allowed_imports", "forbidden_imports", "allowed_commands"}
 USE_CASE_KEYS = {"allowed_imports"}
+
+ANALYSIS_KEYS = {"source_suffixes"}
 
 
 def load_config(path):
@@ -83,6 +86,26 @@ def validate_config(config, root=None):
             )
         )
 
+    analysis = config.get("analysis", {})
+    _check_keys(analysis, ANALYSIS_KEYS, "analysis", violations)
+    if not isinstance(analysis, dict):
+        violations.append(
+            _make_violation("config_invalid", "analysis must be a table", location="analysis")
+        )
+        analysis = {}
+    suffixes = analysis.get("source_suffixes")
+    if suffixes is not None and (
+        not isinstance(suffixes, list)
+        or not all(isinstance(item, str) for item in suffixes)
+    ):
+        violations.append(
+            _make_violation(
+                "config_invalid",
+                "analysis.source_suffixes must be an array of strings",
+                location="analysis.source_suffixes",
+            )
+        )
+
     paths = config.get("paths", {})
     _check_keys(paths, PATH_KEYS, "paths", violations)
     if not isinstance(paths, dict):
@@ -97,11 +120,6 @@ def validate_config(config, root=None):
             _make_violation("config_invalid", "layers must be a table", location="layers")
         )
         layers = {}
-    if not isinstance(scopes, dict):
-        violations.append(
-            _make_violation("config_invalid", "scopes must be a table", location="scopes")
-        )
-        scopes = {}
 
     for name, layer in layers.items():
         _check_keys(layer, LAYER_KEYS, f"layers.{name}", violations)
@@ -331,7 +349,7 @@ def policy_from_config(config):
     boundary = config.get("boundary_concerns", {})
     wrapper_rules = config.get("wrapper_rules", {})
     use_cases = config.get("use_cases", {})
-
+    analysis = config.get("analysis", {})
     return {
         "version": 1,
         "default_region": default_layer,
@@ -380,5 +398,8 @@ def policy_from_config(config):
         ),
         "wrapper_allowed_commands": _string_list(
             wrapper_rules.get("allowed_commands"), "allowed_commands", "wrapper_rules"
+        ),
+        "source_suffixes": tuple(
+            _string_list(analysis.get("source_suffixes"), "source_suffixes", "analysis")
         ),
     }

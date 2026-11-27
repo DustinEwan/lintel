@@ -157,6 +157,28 @@ def check_unparsed(facts):
     ]
 
 
+def _excluded_source(source, facts, policy):
+    return any(
+        item.path == source and item.scope in policy.excluded_scopes
+        for item in facts.scopes
+    )
+
+
+def check_semantic_review(facts, policy):
+    return [
+        violation(
+            "semantic_review",
+            "semantic review: " + item.reason + f" ({item.source}:{item.line})",
+            module=item.module,
+            source=item.source,
+            line=item.line,
+            reason=item.reason,
+        )
+        for item in facts.reviews
+        if not _excluded_source(item.source, facts, policy)
+    ]
+
+
 def check_executables(facts, policy):
     violations = []
     root = policy.entrypoints_root.rstrip("/")
@@ -434,6 +456,7 @@ def check(facts, policy):
     result.extend(check_executables(facts, policy))
     result.extend(check_scopes(facts, policy))
     result.extend(check_boundary_concerns(facts, policy))
+    result.extend(check_semantic_review(facts, policy))
     result.extend(check_use_cases(facts, policy))
     result.extend(check_wrapper_operations(facts, policy))
     return tuple(result)

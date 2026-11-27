@@ -24,6 +24,14 @@ class UnparsedSource:
     reason: str
 
 
+
+@dataclass(frozen=True)
+class SemanticReview:
+    module: str
+    source: str
+    line: int
+    reason: str
+
 @dataclass(frozen=True)
 class Entrypoint:
     module: str
@@ -65,6 +73,7 @@ class SourceAnalysis:
     concerns: tuple[BoundaryConcernUse, ...] = ()
     wrapper_operations: tuple[WrapperOperation, ...] = ()
     unparsed: tuple[UnparsedSource, ...] = ()
+    reviews: tuple[SemanticReview, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -89,6 +98,7 @@ class FactSet:
     concerns: tuple[BoundaryConcernUse, ...] = ()
     scopes: tuple[ScopeAssignment, ...] = ()
     wrapper_operations: tuple[WrapperOperation, ...] = ()
+    reviews: tuple[SemanticReview, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -117,6 +127,7 @@ class Policy:
     wrapper_allowed_imports: tuple[str, ...] = ()
     wrapper_forbidden_imports: tuple[str, ...] = ()
     wrapper_allowed_commands: tuple[str, ...] = ()
+    source_suffixes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -186,6 +197,15 @@ def facts_to_dict(facts):
             {"source": item.source, "line": item.line, "reason": item.reason}
             for item in facts.unparsed
         ],
+        "reviews": [
+            {
+                "module": item.module,
+                "source": item.source,
+                "line": item.line,
+                "reason": item.reason,
+            }
+            for item in facts.reviews
+        ],
         "entrypoints": [
             {"module": item.module, "path": item.path, "kind": item.kind}
             for item in facts.entrypoints
@@ -246,6 +266,15 @@ def facts_from_dict(data):
                 item.get("reason", "unsupported syntax"),
             )
             for item in data.get("unparsed", [])
+        ),
+        reviews=tuple(
+            SemanticReview(
+                item.get("module", ""),
+                item.get("source", ""),
+                int(item.get("line") or 0),
+                item.get("reason", "semantic review"),
+            )
+            for item in data.get("reviews", [])
         ),
         entrypoints=tuple(
             Entrypoint(
@@ -346,6 +375,7 @@ def policy_from_dict(data):
         wrapper_allowed_imports=tuple(data.get("wrapper_allowed_imports", ())),
         wrapper_forbidden_imports=tuple(data.get("wrapper_forbidden_imports", ())),
         wrapper_allowed_commands=tuple(data.get("wrapper_allowed_commands", ())),
+        source_suffixes=tuple(data.get("source_suffixes", ())),
     )
 
 

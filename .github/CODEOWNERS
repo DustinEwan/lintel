@@ -2,4 +2,6 @@
 /architecture.lock @architecture-owners
 /architecture.baseline.json @architecture-owners
 /PLAN.md @architecture-owners
+/ESCAPE_HATCHES.md @architecture-owners
+/SEMANTIC_SCENARIOS.md @architecture-owners
 /.github/workflows/ci.yml @architecture-owners

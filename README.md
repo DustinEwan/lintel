@@ -201,8 +201,11 @@ CI runs both `lake build` and the Python checker pipeline on pushes and pull req
 - `edge_not_allowed`: a source region has no permission for the target region.
 - `cycle`: a module dependency cycle.
 
+- `unparsed_source`: declared source could not be parsed or has no analyzer.
+- `semantic_review`: detectable ambiguity needs a judge or human review.
 Layer patterns use shell-style `fnmatch`; layers are sorted by `priority` and the first matching layer wins. `default_layer` catches dependencies with no matching layer; it is an unowned fallback, not an owned layer. Layers with `core = true` correspond to `Core` in the Lean model. `tests/fixtures/policy.json` remains an example JSON policy covering Rust, Go, and TypeScript module names.
 `architecture.toml` separates three concepts: `[layers.*]` defines inward dependency rings, `[scopes.*]` identifies test/example/fixture/generated/vendor contexts, and `[[executables]]` declares CLI surfaces with their owning layer. `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core.
+`[analysis] source_suffixes` declares which file suffixes are governed source. A declared suffix without an analyzer is an `unparsed_source` error. Exception rules are formalized in `ESCAPE_HATCHES.md`; semantic ambiguity scenarios are listed in `SEMANTIC_SCENARIOS.md`.
 
 Usage:
 

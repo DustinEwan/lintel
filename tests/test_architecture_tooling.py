@@ -9,15 +9,17 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "adapters"))
 
-from adapters import architecture_config, contract_lock, lean_generator
+from adapters import architecture_config, contract_facts, contract_lock, lean_generator
 from adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from adapters.runtime import ArchitectureRuntime
 from architecture_core.checker import (
     check_boundary_concerns,
     check_executables,
     check_wrapper_operations,
+    check,
     module_name_from_path,
     region_for,
+    check_semantic_review,
 )
 from architecture_core.model import (
     BoundaryConcernUse,
@@ -25,8 +27,11 @@ from architecture_core.model import (
     Entrypoint,
     FactSet,
     Module,
+    facts_from_dict,
     policy_from_dict,
     ScopeAssignment,
+    PathOverrides,
+    SemanticReview,
     Violation,
     WrapperOperation,
 )
@@ -305,5 +310,85 @@ class LeanGeneratorTests(unittest.TestCase):
         self.assertIn("def generatedPolicyArchitecture : PolicyArchitecture where", source)
         self.assertIn("path_allowed generatedPolicyArchitecture", source)
 
+
+
+
+
+class PipelineTests(unittest.TestCase):
+    def test_aggregate_pipeline_includes_use_cases(self):
+        policy = real_policy()
+        facts = FactSet(
+            modules=(
+                Module("architecture_core.use_cases.bad"),
+                Module("adapters.impl"),
+            ),
+            dependencies=(
+                Dependency(
+                    "architecture_core.use_cases.bad",
+                    "adapters.impl",
+                    "import",
+                    "bad.py",
+                    1,
+                ),
+            ),
+        )
+        self.assertTrue(
+            any(item.rule == "use_case_dependency" for item in check(facts, policy))
+        )
+
+
+class SelfFactPipelineTests(unittest.TestCase):
+    def test_collect_self_facts_emits_semantic_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = ArchitectureRuntime(directory)
+            runtime.scaffold("clean", directory)
+            path = os.path.join(directory, "adapters", "review_me.py")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("import os\nvalue = getattr(os, \"environ\")\n")
+            config = runtime.load_self_config("architecture.toml", True)
+            facts = runtime.collect_self_facts(config, PathOverrides())
+            violations = check(facts, config.policy)
+        self.assertTrue(
+            any(item.rule == "semantic_review" for item in violations)
+        )
+
+class EscapeHatchTests(unittest.TestCase):
+    def test_declared_unsupported_suffix_fails_closed(self):
+        config = architecture_config.load_config(os.path.join(ROOT, "architecture.toml"))
+        config["analysis"]["source_suffixes"] = [
+            *config["analysis"]["source_suffixes"],
+            ".zig",
+        ]
+        policy = policy_from_dict(architecture_config.policy_from_config(config))
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "widget.zig"), "w", encoding="utf-8") as handle:
+                handle.write("export fn main() void {}\n")
+            facts = contract_facts.discover(directory, policy, policy.entrypoints_root)
+            violations = check(facts_from_dict(facts), policy)
+        self.assertTrue(
+            any(
+                item["reason"] == "unsupported source suffix: .zig"
+                for item in facts["unparsed"]
+            )
+        )
+        self.assertTrue(any(item.rule == "unparsed_source" for item in violations))
+
+    def test_semantic_review_flag_is_reported_and_excluded_scope_skipped(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "adapters/example.py", "import os\nvalue = getattr(os, \"environ\")\n"
+        )
+        self.assertTrue(
+            any(item.reason == "dynamic access to os.environ" for item in analysis.reviews)
+        )
+        policy = real_policy()
+        excluded = FactSet(
+            reviews=analysis.reviews,
+            scopes=(ScopeAssignment("adapters/example.py", "example"),),
+        )
+        self.assertEqual(check_semantic_review(excluded, policy), [])
+        included = FactSet(reviews=analysis.reviews)
+        self.assertTrue(
+            any(item.rule == "semantic_review" for item in check_semantic_review(included, policy))
+        )
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,7 @@ RULES = (
     RuleSpec("edge_not_allowed", "Layer dependency is not allowed.", "Move code or update an intentional, reviewed policy."),
     RuleSpec("cycle", "Dependency cycle detected.", "Break the cycle by introducing a port or moving shared data."),
     RuleSpec("unparsed_source", "Source could not be parsed completely.", "Add support for the syntax or rewrite it into a supported construct.", False),
+    RuleSpec("semantic_review", "Code requires semantic review.", "Resolve the ambiguity or record a reviewed baseline entry."),
 )
 
 RULE_INDEX = {item.id: item for item in RULES}

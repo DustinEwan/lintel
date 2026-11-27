@@ -45,6 +45,7 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
     modules = {}
     dependencies = {}
     unparsed = {}
+    reviews = {}
 
     def keep(source):
         return source not in excluded
@@ -86,6 +87,12 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
         key = (item["source"], item["line"], item["reason"])
         unparsed[key] = item
 
+    for item in contract_data.get("reviews", []):
+        if not keep(item["source"]):
+            continue
+        key = (item.get("module", ""), item["source"], item["line"], item["reason"])
+        reviews[key] = item
+
     return {
         "version": 1,
         "language": "self",
@@ -96,6 +103,9 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
         ),
         "unparsed": sorted(
             unparsed.values(), key=lambda item: (item["source"], item["line"])
+        ),
+        "reviews": sorted(
+            reviews.values(), key=lambda item: (item["source"], item["line"], item["reason"])
         ),
         "entrypoints": sorted(
             contract_data.get("entrypoints", []), key=lambda item: item["path"]
@@ -365,6 +375,9 @@ class ArchitectureRuntime:
             'core_root = "core"',
             'adapters_root = "adapters"',
             'entrypoints_root = "entrypoints"',
+            "",
+            "[analysis]",
+            'source_suffixes = [".py", ".go", ".rs", ".mjs", ".js", ".ts", ".tsx"]',
             "",
             "[scopes.external]",
             'patterns = ["*"]',

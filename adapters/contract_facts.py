@@ -37,12 +37,22 @@ def discover(root, policy, entrypoints_root):
     concerns = []
     wrapper_operations = []
     unparsed = []
+    reviews = []
     entrypoint_prefix = entrypoints_root.rstrip("/") + "/"
 
     for path in _walk(root):
         relative = rel(path, root)
-        analyzer = analyzer_for_suffix(os.path.splitext(relative)[1])
+        suffix = os.path.splitext(relative)[1].lower()
+        analyzer = analyzer_for_suffix(suffix)
         if analyzer is None:
+            if suffix in policy.source_suffixes:
+                unparsed.append(
+                    {
+                        "source": relative,
+                        "line": 1,
+                        "reason": f"unsupported source suffix: {suffix}",
+                    }
+                )
             continue
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             source = handle.read()
@@ -56,6 +66,7 @@ def discover(root, policy, entrypoints_root):
                 asdict(item) for item in analysis.wrapper_operations
             )
         unparsed.extend(asdict(item) for item in analysis.unparsed)
+        reviews.extend(asdict(item) for item in analysis.reviews)
 
     assignments = []
     for path in _walk(root):
@@ -80,4 +91,5 @@ def discover(root, policy, entrypoints_root):
         "wrapper_operations": wrapper_operations,
         "scopes": assignments,
         "unparsed": unparsed,
+        "reviews": reviews,
     }

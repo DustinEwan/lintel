@@ -7,6 +7,9 @@ core_root = "architecture_core"
 adapters_root = "adapters"
 entrypoints_root = "external/cli"
 
+[analysis]
+source_suffixes = [".py", ".go", ".rs", ".mjs", ".js", ".ts", ".tsx"]
+
 [scopes.external]
 patterns = ["*"]
 priority = 0

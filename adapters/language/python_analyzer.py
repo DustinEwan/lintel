@@ -7,6 +7,7 @@ from architecture_core.model import (
     BoundaryConcernUse,
     Entrypoint,
     SourceAnalysis,
+    SemanticReview,
     UnparsedSource,
     WrapperOperation,
 )
@@ -112,6 +113,29 @@ def _wrapper_operations(tree, module):
     return operations
 
 
+def _semantic_reviews(tree, module, relative_path):
+    reviews = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Name)
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            target = f"{node.args[0].id}.{node.args[1].value}"
+            if target in {"os.environ", "sys.argv", "sys.exit", "os._exit"}:
+                reviews.append((node.lineno, f"dynamic access to {target}"))
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "importlib.import_module":
+            reviews.append((node.lineno, "dynamic module loading"))
+    return tuple(
+        SemanticReview(module, relative_path, line, reason)
+        for line, reason in sorted(set(reviews))
+    )
+
+
 class PythonSourceAnalyzer:
     suffixes = (".py",)
 
@@ -144,4 +168,9 @@ class PythonSourceAnalyzer:
             )
             if operation_module == module
         )
-        return SourceAnalysis(entrypoint, concerns, operations)
+        return SourceAnalysis(
+            entrypoint=entrypoint,
+            concerns=concerns,
+            wrapper_operations=operations,
+            reviews=_semantic_reviews(tree, module, relative_path),
+        )
