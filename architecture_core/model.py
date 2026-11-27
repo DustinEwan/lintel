@@ -110,7 +110,6 @@ class Policy:
     scope_conventions: dict[str, str] = field(default_factory=dict)
     excluded_scopes: tuple[str, ...] = ("fixture", "test", "example", "generated", "vendor")
     forbidden_scope_edges: tuple[tuple[str, str], ...] = ()
-    boundary_patterns: dict[str, tuple[str, ...]] = field(default_factory=dict)
     boundary_allowed_regions: dict[str, tuple[str, ...]] = field(default_factory=dict)
     executables: tuple[ExecutableDeclaration, ...] = ()
     build_artifacts: tuple[BuildArtifact, ...] = ()
@@ -332,10 +331,6 @@ def policy_from_dict(data):
         forbidden_scope_edges=tuple(
             tuple(edge) for edge in data.get("forbidden_scope_edges", ()) if len(edge) >= 2
         ),
-        boundary_patterns={
-            name: tuple(patterns)
-            for name, patterns in data.get("boundary_patterns", {}).items()
-        },
         boundary_allowed_regions={
             name: tuple(regions)
             for name, regions in data.get("boundary_allowed_regions", {}).items()

@@ -17,6 +17,7 @@ from architecture_core.checker import (
     check_executables,
     check_wrapper_operations,
     module_name_from_path,
+    region_for,
 )
 from architecture_core.model import (
     BoundaryConcernUse,
@@ -66,6 +67,18 @@ class ConfigValidationTests(unittest.TestCase):
         violations = architecture_config.validate_config(config)
         self.assertIn("config_unknown_key", rules(violations))
         self.assertIn("config_bad_reference", rules(violations))
+
+    def test_new_adapters_subpackages_use_adapters_layer(self):
+        self.assertEqual(
+            region_for("adapters.language.future_analyzer", real_policy()).name,
+            "adapters",
+        )
+
+    def test_boundary_patterns_key_is_rejected(self):
+        config = architecture_config.load_config(CONFIG_PATH)
+        config["boundary_concerns"]["mechanism"]["patterns"] = ["print"]
+        violations = architecture_config.validate_config(config, ROOT)
+        self.assertIn("config_unknown_key", rules(violations))
 
 
 class ExecutableRuleTests(unittest.TestCase):

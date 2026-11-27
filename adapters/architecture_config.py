@@ -27,7 +27,7 @@ SCOPE_KEYS = {"patterns", "priority"}
 LAYER_KEYS = {"priority", "core", "patterns", "allowed", "forbidden"}
 EXECUTABLE_KEYS = {"name", "path", "owner"}
 BUILD_ARTIFACT_KEYS = {"source", "wrapper"}
-BOUNDARY_KEYS = {"patterns", "allowed_regions"}
+BOUNDARY_KEYS = {"allowed_regions"}
 SCOPE_RULE_KEYS = {"forbidden_edges", "conventions", "excluded_scopes"}
 WRAPPER_KEYS = {"allowed_imports", "forbidden_imports", "allowed_commands"}
 USE_CASE_KEYS = {"allowed_imports"}
@@ -359,14 +359,6 @@ def policy_from_config(config):
         "forbidden_scope_edges": [
             list(edge) for edge in scope_rules.get("forbidden_edges", [])
         ],
-        "boundary_patterns": {
-            category: _string_list(
-                boundary.get(category, {}).get("patterns"),
-                "patterns",
-                f"boundary_concerns.{category}",
-            )
-            for category in ("entrypoint_only", "mechanism")
-        },
         "boundary_allowed_regions": {
             category: _string_list(
                 boundary.get(category, {}).get("allowed_regions"),

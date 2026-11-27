@@ -41,33 +41,8 @@ forbidden_edges = []
 "examples/" = "example"
 
 [boundary_concerns.entrypoint_only]
-patterns = [
-  "argparse",
-  "typer",
-  "click",
-  "sys.argv",
-  "sys.exit",
-  "os._exit",
-  "flag.Parse",
-  "std::env::args",
-  "std::process::exit",
-  "process.argv",
-  "process.exit"
-]
 
 [boundary_concerns.mechanism]
-patterns = [
-  "os.environ",
-  "logging",
-  "print",
-  "os.Getenv",
-  "std::env::var",
-  "process.env",
-  "fmt.Print",
-  "println!",
-  "SystemExit",
-  "console.log"
-]
 allowed_regions = ["adapters", "infrastructure", "entrypoints", "external"]
 
 [wrapper_rules]
@@ -223,17 +198,14 @@ patterns = [
   "contract_facts",
   "contract_lock",
   "extract_common",
-  "adapters.language",
-  "adapters.language.*",
 ]
-allowed = ["ports", "core", "platform", "infrastructure", "external"]
+allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
 
 [layers.adapters]
 priority = 60
 core = false
 patterns = [
-  "adapters.*_extractor",
-  "adapters.extract_*",
+  "adapters.*",
   "extract_*",
   "extract_typescript_native",
   "rust_extractor",

@@ -20,7 +20,7 @@ Implemented:
 
 - language-neutral Lean model and boundary proofs;
 - deterministic Python, Rust, Go, and TypeScript fact extraction;
-- fail-closed `unparsed_source` handling;
+- Python parse-error handling via non-baselineable `unparsed_source`;
 - TOML config with layers, scopes, and executable declarations;
 - core ports and use cases;
 - adapter runtime;

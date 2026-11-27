@@ -234,7 +234,7 @@ Core logic lives in `architecture_core/`: pure fact types, policy matching, chec
 
 Boundary-concern and wrapper-operation detection lives behind `SourceAnalyzerPort`. `adapters/language/` contains one analyzer per supported source language, registered by suffix; `adapters/contract_facts.py` only composes their normalized facts with scope assignments. Ambiguous cases requiring intent are listed in `SEMANTIC_SCENARIOS.md`.
 
-Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
+Python parse failures are recorded in an `unparsed` array and reported as `unparsed_source` violations. Native analyzers use language-specific token detection without parser-level `unparsed` facts; unsupported suffixes are currently skipped, and ambiguous cases are inventoried in `SEMANTIC_SCENARIOS.md` for a future semantic judge.
 
 Dogfooding: `python3 external/cli/check_self.py` parses CLI arguments, builds the runtime adapter, and calls the self-check use case. The use case asks ports for config, facts, and checking; `adapters/runtime.py` performs extraction, merging, and file I/O behind those ports. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
 Dogfood configuration and policy live in `architecture.toml` at the repo root:
