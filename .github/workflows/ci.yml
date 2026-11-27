@@ -21,7 +21,7 @@ jobs:
           auto-config: false
           build: true
           use-mathlib-cache: false
-          working-directory: lintel
+          lake-package-directory: lintel
   python:
     name: Architecture checker
     runs-on: ubuntu-latest
@@ -35,7 +35,7 @@ jobs:
           auto-config: false
           build: false
           use-mathlib-cache: false
-          working-directory: lintel
+          lake-package-directory: lintel
 
       - name: Set up Python
         uses: actions/setup-python@v5
