@@ -1,9 +1,20 @@
 version = 1
 default_layer = "external"
+default_scope = "external"
 
 [paths]
 core_root = "architecture_core"
 adapters_root = "adapters"
+entrypoints_root = "external/cli"
+
+[scopes.test]
+patterns = ["tests/**", "**/*_test.py", "**/*.test.ts"]
+
+[scopes.example]
+patterns = ["examples/**"]
+
+[scopes.fixture]
+patterns = ["tests/fixtures/**"]
 
 [layers.ports]
 priority = 10
@@ -18,13 +29,16 @@ patterns = [
 ]
 allowed = ["ports", "core", "platform"]
 forbidden = [
+  "external.cli.*",
   "check_architecture",
   "check_self",
+  "adapters.*_extractor",
+  "adapters.extract_*",
   "extract_*",
-  "extract_typescript_native",
   "rust_extractor",
   "architecture-extractors/go-extractor",
-  "extract_common"
+  "extract_common",
+  "adapters.runtime"
 ]
 
 [layers.core]
@@ -33,13 +47,16 @@ core = true
 patterns = ["Architecture", "architecture_core.*"]
 allowed = ["ports", "core", "platform"]
 forbidden = [
+  "external.cli.*",
   "check_architecture",
   "check_self",
+  "adapters.*_extractor",
+  "adapters.extract_*",
   "extract_*",
-  "extract_typescript_native",
   "rust_extractor",
   "architecture-extractors/go-extractor",
-  "extract_common"
+  "extract_common",
+  "adapters.runtime"
 ]
 
 [layers.platform]
@@ -97,19 +114,35 @@ allowed = ["platform"]
 [layers.entrypoints]
 priority = 40
 core = false
-patterns = ["check_architecture", "check_self"]
+patterns = [
+  "external.cli.*",
+  "check_architecture",
+  "check_self",
+  "extract_python",
+  "extract_go",
+  "extract_rust",
+  "extract_typescript"
+]
 allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
 
 [layers.infrastructure]
 priority = 50
 core = false
-patterns = ["extract_common", "architecture_config"]
-allowed = ["platform", "infrastructure", "external"]
+patterns = [
+  "adapters.runtime",
+  "adapters.architecture_config",
+  "adapters.extract_common",
+  "architecture_config",
+  "extract_common"
+]
+allowed = ["ports", "core", "platform", "infrastructure", "external"]
 
 [layers.adapters]
 priority = 60
 core = false
 patterns = [
+  "adapters.*_extractor",
+  "adapters.extract_*",
   "extract_*",
   "extract_typescript_native",
   "rust_extractor",
@@ -117,8 +150,32 @@ patterns = [
 ]
 allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
 
-[layers.external]
-priority = 999
-core = false
-patterns = []
-allowed = ["external"]
+[[executables]]
+name = "check_self"
+path = "external/cli/check_self.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "check_architecture"
+path = "external/cli/check_architecture.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_python"
+path = "external/cli/extract_python.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_go"
+path = "external/cli/extract_go.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_rust"
+path = "external/cli/extract_rust.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_typescript"
+path = "external/cli/extract_typescript.py"
+owner = "entrypoints"

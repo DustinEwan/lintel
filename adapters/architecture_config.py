@@ -30,9 +30,6 @@ def policy_from_config(config):
     default_layer = config.get("default_layer", "external")
     if not isinstance(default_layer, str):
         raise SystemExit("config: default_layer must be a string")
-    if default_layer not in layers:
-        raise SystemExit(f"config: default_layer {default_layer!r} has no layer definition")
-
     for name, layer in layers.items():
         if not isinstance(layer, dict):
             raise SystemExit(f"config layer {name}: must be a table")
@@ -57,6 +54,10 @@ def policy_from_config(config):
         targets = _string_list(layer.get("forbidden"), "forbidden", name)
         if targets:
             forbidden[name] = targets
+
+    if default_layer not in allowed:
+        regions.append({"name": default_layer, "core": False, "patterns": []})
+        allowed[default_layer] = [default_layer]
 
     return {
         "version": 1,

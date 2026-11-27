@@ -53,6 +53,64 @@ class Violation:
     fields: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class PathOverrides:
+    core_root: str | None = None
+    adapters_root: str | None = None
+
+
+@dataclass(frozen=True)
+class SelfConfig:
+    core_root: str
+    adapters_root: str
+    policy: Policy
+
+
+@dataclass(frozen=True)
+class SelfCheckRequest:
+    config_path: str
+    config_required: bool
+    overrides: PathOverrides
+    out: str | None = None
+
+
+@dataclass(frozen=True)
+class SelfCheckResult:
+    facts: FactSet
+    violations: tuple[Violation, ...]
+
+
+@dataclass(frozen=True)
+class CheckFactsRequest:
+    facts_path: str
+    config_path: str | None = None
+    policy_path: str | None = None
+
+
+def facts_to_dict(facts):
+    return {
+        "version": 1,
+        "language": "self",
+        "modules": [
+            {"name": module.name, "path": module.path} for module in facts.modules
+        ],
+        "dependencies": [
+            {
+                "from": dep.source_module,
+                "to": dep.target_module,
+                "kind": dep.kind,
+                "source": dep.source,
+                "line": dep.line,
+            }
+            for dep in facts.dependencies
+        ],
+        "unparsed": [
+            {"source": item.source, "line": item.line, "reason": item.reason}
+            for item in facts.unparsed
+        ],
+    }
+
+
 def facts_from_dict(data):
     return FactSet(
         modules=tuple(

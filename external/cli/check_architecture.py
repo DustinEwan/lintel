@@ -1,34 +1,20 @@
 #!/usr/bin/env python3
-"""Check extracted dependency facts against an architecture policy."""
+"""CLI entrypoint for checking extracted architecture facts."""
 
 import argparse
 import json
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ADAPTERS_ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ADAPTERS_ROOT = os.path.join(ROOT, "adapters")
 for path in (ROOT, ADAPTERS_ROOT):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-import architecture_config
-from architecture_core.checker import check
-from architecture_core.model import facts_from_dict, policy_from_dict, violation_to_dict
-
-
-def load_json(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def load_policy(args):
-    if args.config:
-        data = architecture_config.policy_from_config(
-            architecture_config.load_config(args.config)
-        )
-        return policy_from_dict(data)
-    return policy_from_dict(load_json(args.policy))
+from adapters.runtime import ArchitectureRuntime
+from architecture_core.model import CheckFactsRequest, violation_to_dict
+from architecture_core.use_cases.check_facts import run_check_facts
 
 
 def main():
@@ -40,9 +26,14 @@ def main():
     parser.add_argument("--json", action="store_true", help="emit JSON violations")
     args = parser.parse_args()
 
-    facts = facts_from_dict(load_json(args.facts))
-    policy = load_policy(args)
-    violations = [violation_to_dict(item) for item in check(facts, policy)]
+    runtime = ArchitectureRuntime(ROOT)
+    request = CheckFactsRequest(
+        facts_path=args.facts, config_path=args.config, policy_path=args.policy
+    )
+    violations = [
+        violation_to_dict(item)
+        for item in run_check_facts(runtime, runtime, runtime, request)
+    ]
 
     if args.json:
         print(json.dumps(violations, indent=2))
@@ -55,4 +46,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

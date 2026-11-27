@@ -339,6 +339,37 @@ theorem typed_capability_adapter_substitution {A : Architecture} {L : BoundaryDa
     (h : equivalent a.implementation b.implementation) :
     program a.implementation = program b.implementation :=
   substitution program h
+/-- Volatile concerns that belong exclusively to a process entrypoint. -/
+inductive BoundaryConcern where
+  | argv
+  | environment
+  | exitCode
+  | terminalIO
+
+/-- An outer module that serves as the system boundary surface. -/
+structure BoundarySurface (A : Architecture) where
+  module : A.Module
+  outer : ¬ A.Core module
+
+/-- An entrypoint surface that owns boundary concerns only at that surface. -/
+structure EntrypointBoundary (A : Architecture) where
+  surface : BoundarySurface A
+  owns : BoundaryConcern → Set A.Module
+  surface_only : ∀ {c m}, owns c m → m = surface.module
+
+/-- No core module can reach the entrypoint surface. -/
+theorem surface_unreachable_from_core (A : Architecture) (entry : EntrypointBoundary A)
+    {c : A.Module} (hc : A.Core c) : ¬ Path A.dep c entry.surface.module :=
+  core_cannot_reach_outer A hc entry.surface.outer
+
+/-- An adapter away from the entrypoint surface cannot own boundary concerns. -/
+theorem adapter_not_cli_concern (A : Architecture) (p : Port A)
+    (adapter : Adapter A p) (entry : EntrypointBoundary A)
+    (hne : adapter.module ≠ entry.surface.module) (c : BoundaryConcern) :
+    ¬ entry.owns c adapter.module := by
+  intro h
+  exact hne (entry.surface_only h)
+
 /-!
 ## Concrete finite instance
 
@@ -350,12 +381,13 @@ inductive DemoModule where
   | application
   | postgresRepo
   | httpAdapter
-  deriving DecidableEq
+  | cli
 
 def demoDep : DemoModule → DemoModule → Prop
   | .application, .domain => True
   | .postgresRepo, .application => True
   | .httpAdapter, .application => True
+  | .cli, .application => True
   | _, _ => False
 
 def demoCore : Set DemoModule
@@ -363,6 +395,7 @@ def demoCore : Set DemoModule
   | .application => True
   | .postgresRepo => False
   | .httpAdapter => False
+  | .cli => False
 
 def demoArchitecture : Architecture :=
   { Module := DemoModule
@@ -398,6 +431,7 @@ def demoStrict : StrictLayeredArchitecture :=
       | .application => .application
       | .postgresRepo => .adapters
       | .httpAdapter => .adapters
+      | .cli => .adapters
     order :=
       { lt := demoLt
         irrefl := by
@@ -410,4 +444,25 @@ def demoStrict : StrictLayeredArchitecture :=
       intro a b hdep
       cases a <;> cases b <;> simp [demoDep, demoLt] at * }
 
-theorem demo_acyclic : Acyclic demoDep := strict_acyclic demoStrict
+
+/-- The cli entrypoint is the sole owner of process boundary concerns. -/
+def demoBoundary : EntrypointBoundary demoArchitecture where
+  surface :=
+    { module := DemoModule.cli
+      outer := by simp [demoArchitecture, demoCore] }
+  owns := fun _ m => m = DemoModule.cli
+  surface_only := by
+    intro c m h
+    exact h
+
+example : ¬ demoBoundary.owns BoundaryConcern.argv DemoModule.postgresRepo := by
+  exact adapter_not_cli_concern demoArchitecture
+    { contract := DemoModule.application
+      owned_by_core := by simp [demoArchitecture, demoCore] }
+    { module := DemoModule.postgresRepo
+      outer := by simp [demoArchitecture, demoCore]
+      implements := by simp [demoArchitecture, demoDep] }
+    demoBoundary (by
+      change DemoModule.postgresRepo ≠ DemoModule.cli
+      intro h
+      cases h) BoundaryConcern.argv

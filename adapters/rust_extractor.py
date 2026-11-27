@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Extract Rust module dependencies as architecture facts."""
 
-import argparse
 import os
 import re
 import tomllib
 
-from extract_common import iter_files, rel, write_json
+from adapters.extract_common import iter_files, rel, write_json
 
 VISIBILITY_RE = r"(?:pub(?:\s*\((?:crate|self|super|in\s+[^)]+)\))?\s+)?"
 USE_RE = re.compile(r"(?m)^\s*" + VISIBILITY_RE + r"use\s+([^;]+);")
@@ -181,13 +180,3 @@ def extract(root):
     }
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=".", help="project root to scan")
-    parser.add_argument("--out", required=True, help="output JSON facts path")
-    args = parser.parse_args()
-    write_json(args.out, extract(os.path.abspath(args.root)))
-
-
-if __name__ == "__main__":
-    main()

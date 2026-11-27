@@ -38,6 +38,22 @@ The practical differences are mostly **emphasis and vocabulary**:
 6. **Layer counts are schematic.**
    The hexagon's six sides and Clean's four circles are diagrams, not mandatory layer counts.
 
+## Boundary surfaces
+
+An executable is an **outer boundary surface**, not an adapter implementation. `external/cli/` owns argv parsing, environment access, process exit codes, and terminal I/O. Those concerns never move inward: a CLI wrapper parses input, composes concrete adapters, and calls a core use case.
+
+```text
+external/cli/*       argv, env, exit status, composition
+        ↓
+adapters/*           files, subprocesses, JSON, language toolchains
+        ↓
+architecture_core/* facts, policy, rules, workflows behind ports
+```
+
+If an adapter imports `argparse`, reads `sys.argv`, or owns process exit behavior, that is evidence of inverted dependency direction. Tests, examples, fixtures, generated code, and vendor code are **scopes**, not architectural layers. `external` means unowned dependency or outside system, not a peer layer for owned code.
+
+The Lean spec encodes this as `BoundaryConcern`, `BoundarySurface`, `EntrypointBoundary`, `surface_unreachable_from_core`, and `adapter_not_cli_concern`.
+
 ## Comparison
 
 | Aspect | Hexagonal Architecture | Onion Architecture | Clean Architecture |
@@ -171,67 +187,73 @@ lake build
 
 ## Extractors and checker
 
-`adapters/extract_rust.py`, `adapters/extract_go.py`, and `adapters/extract_typescript.py` scan a project root and emit JSON facts:
+`external/cli/extract_*.py` are CLI entrypoints. They call the extractor libraries in `adapters/*_extractor.py`, which scan a project root and emit JSON facts:
 
 - `modules`: `{name, path, package?}` entries.
 - `dependencies`: `{from, to, kind, source, line}` entries.
 
-`adapters/check_architecture.py` reads facts plus architecture configuration from `architecture.toml` (`--config`) or a JSON policy file (`--policy`). It reports:
+`external/cli/check_architecture.py` reads facts plus architecture configuration from `architecture.toml` (`--config`) or a JSON policy file (`--policy`). It reports:
 
 - `core_outward`: a core module depends on a non-core module.
 - `forbidden_import`: a core module imports a forbidden target.
 - `edge_not_allowed`: a source region has no permission for the target region.
 - `cycle`: a module dependency cycle.
 
-Layer patterns use shell-style `fnmatch`; layers are sorted by `priority` and the first matching layer wins. `default_layer` catches dependencies with no matching layer. Layers with `core = true` correspond to `Core` in the Lean model. `tests/fixtures/policy.json` remains an example JSON policy covering Rust, Go, and TypeScript module names.
-The self-configuration makes the layers explicit: `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, `infrastructure`, and `external` are outer layers. Ports are contracts and boundary data owned by core, CLI entrypoints drive adapters, infrastructure is file/JSON/OS plumbing, and `external` is unowned packages and systems.
+Layer patterns use shell-style `fnmatch`; layers are sorted by `priority` and the first matching layer wins. `default_layer` catches dependencies with no matching layer; it is an unowned fallback, not an owned layer. Layers with `core = true` correspond to `Core` in the Lean model. `tests/fixtures/policy.json` remains an example JSON policy covering Rust, Go, and TypeScript module names.
+`architecture.toml` separates three concepts: `[layers.*]` defines inward dependency rings, `[scopes.*]` identifies test/example/fixture/generated/vendor contexts, and `[[executables]]` declares CLI surfaces with their owning layer. `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core.
 
 Usage:
 
 ```sh
-python3 adapters/extract_rust.py --root /path/to/project --out rust-facts.json
+python3 external/cli/extract_rust.py --root /path/to/project --out rust-facts.json
 cargo run --manifest-path adapters/rust-extractor/Cargo.toml -- --root /path/to/project --out rust-native-facts.json
-python3 adapters/extract_go.py --root /path/to/project --out go-facts.json
-python3 adapters/extract_typescript.py --root /path/to/project --out ts-facts.json
-python3 adapters/extract_python.py --root /path/to/project --out py-facts.json
+python3 external/cli/extract_go.py --root /path/to/project --out go-facts.json
+python3 external/cli/extract_typescript.py --root /path/to/project --out ts-facts.json
+python3 external/cli/extract_python.py --root /path/to/project --out py-facts.json
 go run ./adapters/go-extractor/main.go --root /path/to/project --out go-native-facts.json
 npm install
 node adapters/extract_typescript_native.mjs --root /path/to/project --out ts-native-facts.json
-python3 adapters/check_architecture.py rust-facts.json --config architecture.toml
-python3 adapters/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
-python3 adapters/check_self.py
+python3 external/cli/check_architecture.py rust-facts.json --config architecture.toml
+python3 external/cli/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
+python3 external/cli/check_self.py
 ```
 
-The Python adapters are dependency-free. `adapters/extract_python.py` is the extractor for Python projects and uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
-Core logic lives in `architecture_core/`: pure fact types, policy matching, and checker rules. `adapters/` contains CLI adapters and extractors that translate source syntax into facts; `extract_common.py` is filesystem/JSON infrastructure. Dependencies point inward: adapters -> core; core has no source or CLI dependencies.
+The Python extractor libraries are dependency-free. `adapters/python_extractor.py` uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
+Core logic lives in `architecture_core/`: pure fact types, policy matching, checker rules, ports, and use cases. `adapters/` contains concrete mechanisms that translate source syntax into facts and perform file/process I/O; `adapters/runtime.py` composes those mechanisms behind core ports. `external/cli/` contains executable surfaces only. Dependencies point inward: entrypoints -> adapters -> core; core has no CLI, subprocess, JSON-I/O, or filesystem dependencies.
 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
 
-Dogfooding: `python3 adapters/check_self.py` extracts `architecture_core/` and `adapters/` as separate import roots, merges facts from all extractors, and checks them against the `[layers]` tables in `architecture.toml`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
+Dogfooding: `python3 external/cli/check_self.py` parses CLI arguments, builds the runtime adapter, and calls the self-check use case. The use case asks ports for config, facts, and checking; `adapters/runtime.py` performs extraction, merging, and file I/O behind those ports. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
 Dogfood configuration and policy live in `architecture.toml` at the repo root:
 
 ```toml
 version = 1
 default_layer = "external"
+default_scope = "external"
 
 [paths]
 core_root = "architecture_core"
 adapters_root = "adapters"
+entrypoints_root = "external/cli"
+
+[[executables]]
+name = "check_self"
+path = "external/cli/check_self.py"
+owner = "entrypoints"
 
 [layers.core]
 priority = 20
 core = true
 patterns = ["architecture_core.*"]
 allowed = ["ports", "core", "platform"]
-forbidden = ["extract_*", "check_self"]
 ```
 
-CLI flags override the path values. Layer patterns and allowed edges are independent of folder names, so moving adapters to `drivers/` only requires changing `adapters_root`; the `adapters` layer still matches those modules.
+CLI flags override path values. Layer patterns and allowed edges are independent of folder names, but executable surfaces are declared explicitly in `[[executables]]`.
 
 Limits:
 
 - Python extractors are static source scanners; native extractors use language toolchains. Reflection, generated code, and runtime dependency injection remain out of scope.
-- `adapters/extract_python.py` handles absolute and relative imports, `__init__.py` packages, `src/` layouts, and literal `importlib`/`__import__` calls. Relative dynamic imports are resolved against `package=` or the current package; parse errors, non-literal or unresolved dynamic imports, and `eval`/`exec` are reported as unparsed.
+- `adapters/python_extractor.py` handles absolute and relative imports, `__init__.py` packages, `src/` layouts, and literal `importlib`/`__import__` calls. Relative dynamic imports are resolved against `package=` or the current package; parse errors, non-literal or unresolved dynamic imports, and `eval`/`exec` are reported as unparsed.
 - Rust `use` items are resolved to the nearest known local module; `pub use`, `pub(crate) use`, `pub(super) use`, `pub(in path) use`, and `extern crate` are included. Unrecognized visibility forms are reported as unparsed, as are `include!`, `#[path]`, and `macro_rules!`. The native extractor parses Rust ASTs with `syn`, reads the package name from `cargo metadata`, and reports workspace roots as unparsed instead of attributing all members to the first package.
 - The Python Go scanner parses import declarations from source. `go-extractor` uses `go list -json` plus `go/parser` for package paths and import positions. Build-tagged and unparseable files are reported as unparsed.
 - The Python TypeScript scanner handles single-line static imports/exports, `require()`, and `import()` including import attributes across `.ts`, `.tsx`, `.mts`, `.cts`, `.mjs`, and `.cjs`; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.
