@@ -33,7 +33,7 @@ jobs:
         uses: leanprover/lean-action@v1
         with:
           auto-config: false
-          build: true
+          build: false
           use-mathlib-cache: false
 
       - name: Set up Python
@@ -71,6 +71,5 @@ jobs:
 
       - name: Generate and check Lean instance
         run: |
-          python3 external/cli/architecture.py generate-lean --out /tmp/ArchitectureFacts.lean
           source "$HOME/.elan/env"
-          lake env lean /tmp/ArchitectureFacts.lean
+          python3 external/cli/architecture.py generate-lean --out /tmp/ArchitectureFacts.lean

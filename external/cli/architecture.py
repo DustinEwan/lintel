@@ -96,6 +96,9 @@ def main():
     generate.add_argument("--facts", help="JSON facts file; default collects self facts")
     generate.add_argument("--config", default="architecture.toml")
     generate.add_argument("--out", default="generated/ArchitectureFacts.lean")
+    generate.add_argument(
+        "--no-check", action="store_true", help="skip lake build and generated-instance check"
+    )
 
     args = parser.parse_args()
     runtime = ArchitectureRuntime(args.root)
@@ -132,6 +135,10 @@ def main():
         os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
         lean_generator.write_instance(facts, policy, output)
         print(f"Generated Lean instance at {args.out}.")
+        if not args.no_check:
+            runtime.run_in_tool_root(["lake", "build"])
+            runtime.run_in_tool_root(["lake", "env", "lean", output])
+            print("Checked generated Lean instance.")
         return 0
     if args.command == "update-lock":
         runtime.update_lock(args.config)

@@ -65,7 +65,7 @@ forbidden_imports = [
   "architecture_core.rules",
   "architecture_core.ratchet"
 ]
-allowed_commands = ["cargo", "go", "node", "python3"]
+allowed_commands = ["cargo", "go", "lake", "node", "python3"]
 
 [use_cases]
 allowed_imports = [

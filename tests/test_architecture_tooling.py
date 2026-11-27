@@ -402,6 +402,25 @@ class EscapeHatchTests(unittest.TestCase):
         )
         self.assertTrue(any(item.rule == "unparsed_source" for item in violations))
 
+    def test_undeclared_analyzable_suffix_fails_closed(self):
+        config = architecture_config.load_config(os.path.join(ROOT, "architecture.toml"))
+        config["analysis"]["source_suffixes"] = [
+            suffix
+            for suffix in config["analysis"]["source_suffixes"]
+            if suffix != ".py"
+        ]
+        policy = policy_from_dict(architecture_config.policy_from_config(config))
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "widget.py"), "w", encoding="utf-8") as handle:
+                handle.write("value = 1\n")
+            facts = contract_facts.discover(directory, policy, policy.entrypoints_root)
+        self.assertTrue(
+            any(
+                item["reason"] == "undeclared source suffix: .py"
+                for item in facts["unparsed"]
+            )
+        )
+
     def test_semantic_review_flag_is_reported_and_excluded_scope_skipped(self):
         analysis = PythonSourceAnalyzer().analyze(
             "adapters/example.py", "import os\nvalue = getattr(os, \"environ\")\n"

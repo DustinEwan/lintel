@@ -144,6 +144,14 @@ class ArchitectureRuntime:
             raise SystemExit(result.stderr.strip() or result.stdout.strip())
         return result
 
+    def run_in_tool_root(self, command):
+        result = subprocess.run(
+            command, cwd=self.tool_root, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise SystemExit(result.stderr.strip() or result.stdout.strip())
+        return result
+
     def load_self_config(self, path, required):
         full = self.resolve(path or DEFAULT_CONFIG)
         if not os.path.isfile(full):

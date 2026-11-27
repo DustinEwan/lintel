@@ -74,18 +74,38 @@ def generate(facts, policy):
     lines.extend(["", "def generatedRegionLabel : GeneratedRegion → String"])
     for name, ctor in region_index.items():
         lines.append(f"  | GeneratedRegion.{ctor} => {json.dumps(name)}")
-    lines.extend(["", "def generatedDep : GeneratedModule → GeneratedModule → Prop"])
+    lines.extend(["", "def generatedDepBool : GeneratedModule → GeneratedModule → Bool"])
     for source, target in sorted(source_edges):
         lines.append(
-            f"  | GeneratedModule.{source}, GeneratedModule.{target} => True"
+            f"  | GeneratedModule.{source}, GeneratedModule.{target} => true"
         )
-    lines.extend(["  | _, _ => False", "", "def generatedCore : GeneratedModule → Prop"])
+    lines.extend(
+        [
+            "  | _, _ => false",
+            "",
+            "def generatedDep (a b : GeneratedModule) : Prop := generatedDepBool a b = true",
+            "instance generatedDepDecidable (a b : GeneratedModule) : Decidable (generatedDep a b) :=",
+            "  inferInstanceAs (Decidable (generatedDepBool a b = true))",
+            "",
+            "def generatedCoreBool : GeneratedModule → Bool",
+        ]
+    )
     for module in module_names:
         if source_to_region[module] in {
             region_index[item.name] for item in policy.regions if item.core
         }:
-            lines.append(f"  | GeneratedModule.{modules[module]} => True")
-    lines.extend(["  | _ => False", "", "def generatedRegion : GeneratedModule → GeneratedRegion"])
+            lines.append(f"  | GeneratedModule.{modules[module]} => true")
+    lines.extend(
+        [
+            "  | _ => false",
+            "",
+            "def generatedCore (a : GeneratedModule) : Prop := generatedCoreBool a = true",
+            "instance generatedCoreDecidable (a : GeneratedModule) : Decidable (generatedCore a) :=",
+            "  inferInstanceAs (Decidable (generatedCoreBool a = true))",
+            "",
+            "def generatedRegion : GeneratedModule → GeneratedRegion",
+        ]
+    )
     for module in module_names:
         lines.append(
             f"  | GeneratedModule.{modules[module]} => GeneratedRegion.{source_to_region[module]}"
@@ -93,16 +113,25 @@ def generate(facts, policy):
     lines.extend(
         [
             "",
-            "def generatedAllowed : GeneratedRegion → GeneratedRegion → Prop",
+            "def generatedAllowedBool : GeneratedRegion → GeneratedRegion → Bool",
         ]
     )
     for target, source in sorted(allowed):
         lines.append(
-            f"  | GeneratedRegion.{target}, GeneratedRegion.{source} => True"
+            f"  | GeneratedRegion.{target}, GeneratedRegion.{source} => true"
         )
     lines.extend(
         [
-            "  | _, _ => False",
+            "  | _, _ => false",
+            "",
+            "def generatedAllowed (a b : GeneratedRegion) : Prop := generatedAllowedBool a b = true",
+            "instance generatedAllowedDecidable (a b : GeneratedRegion) : Decidable (generatedAllowed a b) :=",
+            "  inferInstanceAs (Decidable (generatedAllowedBool a b = true))",
+            "",
+        ]
+    )
+    lines.extend(
+        [
             "",
             "def generatedArchitecture : Architecture where",
             "  Module := GeneratedModule",
@@ -110,16 +139,21 @@ def generate(facts, policy):
             "  Core := generatedCore",
             "  core_closed := by",
             "    intro a b ha h",
-            "    cases a <;> cases b <;> simp [generatedCore, generatedDep] at ha h ⊢",
+            "    revert ha h",
+            "    cases a <;> cases b <;> decide",
             "",
             "def generatedEdgePolicy : EdgePolicy GeneratedRegion where",
             "  allowed := generatedAllowed",
             "  allowed_refl := by",
             "    intro r",
-            "    cases r <;> simp [generatedAllowed]",
+            "    cases r <;> decide",
             "  allowed_trans := by",
             "    intro r s t hrs hst",
-            "    cases r <;> cases s <;> cases t <;> simp [generatedAllowed] at hrs hst ⊢",
+            "    revert hrs hst",
+            "    cases r <;> cases s <;> cases t <;> decide",
+            "",
+            "instance generatedEdgePolicyDecidable (a b : GeneratedRegion) : Decidable (generatedEdgePolicy.allowed a b) :=",
+            "  generatedAllowedDecidable a b",
             "",
             "def generatedPolicyArchitecture : PolicyArchitecture where",
             "  Module := GeneratedModule",
@@ -129,7 +163,8 @@ def generate(facts, policy):
             "  policy := generatedEdgePolicy",
             "  dep_allowed := by",
             "    intro a b h",
-            "    cases a <;> cases b <;> simp [generatedEdgePolicy, generatedDep, generatedAllowed, generatedRegion] at h ⊢",
+            "    revert h",
+            "    cases a <;> cases b <;> decide",
             "",
             "theorem generated_core_cannot_reach_outer {a b : GeneratedModule}",
             "    (ha : generatedCore a) (hb : ¬ generatedCore b) :",

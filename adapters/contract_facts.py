@@ -43,15 +43,18 @@ def discover(root, policy, entrypoints_root):
     for path in _walk(root):
         relative = rel(path, root)
         suffix = os.path.splitext(relative)[1].lower()
+        if suffix in KNOWN_SOURCE_SUFFIXES and suffix not in policy.source_suffixes:
+            unparsed.append(
+                {"source": relative, "line": 1, "reason": f"undeclared source suffix: {suffix}"}
+            )
+            continue
         analyzer = analyzer_for_suffix(suffix)
         if analyzer is None:
-            if suffix in policy.source_suffixes:
-                reason = f"unsupported source suffix: {suffix}"
-            elif suffix in KNOWN_SOURCE_SUFFIXES:
-                reason = f"undeclared source suffix: {suffix}"
-            else:
+            if suffix not in policy.source_suffixes:
                 continue
-            unparsed.append({"source": relative, "line": 1, "reason": reason})
+            unparsed.append(
+                {"source": relative, "line": 1, "reason": f"unsupported source suffix: {suffix}"}
+            )
             continue
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             source = handle.read()
