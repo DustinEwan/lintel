@@ -13,6 +13,7 @@ for path in (ROOT, ADAPTERS_ROOT):
         sys.path.insert(0, path)
 
 from adapters.runtime import ArchitectureRuntime
+
 from adapters import lean_generator
 from architecture_core.model import (
     CheckFactsRequest,
@@ -20,6 +21,7 @@ from architecture_core.model import (
     SelfCheckRequest,
     violation_to_dict,
 )
+
 from architecture_core.use_cases.check_facts import run_check_facts
 from architecture_core.use_cases.self_check import run_self_check
 
@@ -35,19 +37,6 @@ def _emit(violations, output_format):
         print("OK: no architecture violations")
     return 1 if data else 0
 
-def _accepted_review_sources(runtime, path):
-    resolved = runtime.resolve(path)
-    if not os.path.isfile(resolved):
-        return ()
-    with open(resolved, encoding="utf-8") as handle:
-        data = json.load(handle)
-    return tuple(
-        source
-        for item in data.get("violations", ())
-        if item.get("rule") == "semantic_review"
-        for source in (item.get("source") or item.get("location"),)
-        if source
-    )
 
 
 def _check(args, runtime):
@@ -152,7 +141,7 @@ def main():
             facts = runtime.collect_self_facts(config, PathOverrides())
         output = runtime.resolve(args.out)
         os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
-        accepted = _accepted_review_sources(runtime, args.baseline)
+        accepted = runtime.accepted_review_sources(args.baseline, facts, policy)
         lean_generator.write_instance(facts, policy, output, accepted)
         print(f"Generated Lean instance at {args.out}.")
         if not args.no_check:

@@ -12,7 +12,7 @@ import tempfile
 
 from adapters import architecture_config, contract_facts, contract_lock
 from architecture_core import presets, rules
-from architecture_core.checker import check
+from architecture_core.checker import check, check_semantic_review
 from architecture_core.model import (
     FactSet,
     Policy,
@@ -22,6 +22,7 @@ from architecture_core.model import (
     policy_from_dict,
     violation_to_dict,
 )
+
 from architecture_core.ratchet import compare_baseline, is_baselineable, violation_fingerprint
 
 DEFAULT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -357,6 +358,35 @@ class ArchitectureRuntime:
             json.dump({"version": 1, "violations": accepted}, handle, indent=2)
             handle.write("\n")
         self.update_lock(config_path)
+
+    def accepted_review_sources(self, path, facts=None, policy=None):
+        resolved = self.resolve(path)
+        if not os.path.isfile(resolved):
+            return ()
+        with open(resolved, encoding="utf-8") as handle:
+            data = json.load(handle)
+        entries = [
+            item
+            for item in data.get("violations", ())
+            if item.get("rule") == "semantic_review"
+        ]
+        sources = [
+            source
+            for item in entries
+            for source in (item.get("source") or item.get("location"),)
+            if source
+        ]
+        fingerprints = {
+            item["fingerprint"] for item in entries if item.get("fingerprint")
+        }
+        if facts is not None and policy is not None and fingerprints:
+            sources.extend(
+                item.fields["source"]
+                for item in check_semantic_review(facts, policy)
+                if violation_fingerprint(item) in fingerprints
+                and item.fields.get("source")
+            )
+        return tuple(dict.fromkeys(sources))
 
     def list_rules(self):
         return tuple(rules.catalog_data())

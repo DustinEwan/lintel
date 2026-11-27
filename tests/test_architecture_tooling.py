@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import os
 import sys
@@ -46,14 +45,6 @@ def real_policy():
     return policy_from_dict(architecture_config.policy_from_config(config))
 
 
-def load_cli_module():
-    spec = importlib.util.spec_from_file_location(
-        "architecture_cli_under_test",
-        os.path.join(ROOT, "external", "cli", "architecture.py"),
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 def module_ctor(source, name):
     suffix = f'=> "{name}"'
     for line in source.splitlines():
@@ -417,26 +408,24 @@ class LeanGeneratorTests(unittest.TestCase):
         self.assertNotIn(f"| GeneratedModule.{other} => true", rows)
 
     def test_baseline_semantic_review_source_is_used(self):
-        module = load_cli_module()
+        policy = real_policy()
+        facts = FactSet(
+            modules=(Module("adapters.impl", "adapters/impl.py"),),
+            reviews=(
+                SemanticReview("adapters.impl", "adapters/impl.py", 1, "ambiguous"),
+            ),
+        )
+        violations = check_semantic_review(facts, policy)
+        self.assertTrue(violations)
         with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "baseline.json")
-            with open(path, "w", encoding="utf-8") as handle:
-                json.dump(
-                    {
-                        "version": 1,
-                        "violations": [
-                            {
-                                "rule": "semantic_review",
-                                "message": "review",
-                                "source": "adapters/impl.py",
-                                "line": 1,
-                            }
-                        ],
-                    },
-                    handle,
-                )
+            runtime = ArchitectureRuntime(tmp)
+            runtime.accept_baseline(CONFIG_PATH, violations)
+            path = os.path.join(tmp, "architecture.baseline.json")
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+            self.assertEqual(data["violations"][0].get("location"), "")
             self.assertEqual(
-                module._accepted_review_sources(ArchitectureRuntime(ROOT), path),
+                runtime.accepted_review_sources(path, facts, policy),
                 ("adapters/impl.py",),
             )
 
