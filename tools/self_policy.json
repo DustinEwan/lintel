@@ -7,8 +7,7 @@
       "core": true,
       "patterns": [
         "Architecture",
-        "check_architecture",
-        "extract_common"
+        "architecture_core.*"
       ]
     },
     {
@@ -22,12 +21,12 @@
         "contextlib",
         "core",
         "csv",
-        "dataclasses",
+        "dataclasses*",
         "datetime",
         "encoding/json",
         "enum",
         "flag",
-        "fnmatch",
+        "fnmatch*",
         "fmt",
         "glob",
         "go/parser",
@@ -59,15 +58,21 @@
         "time",
         "tomllib",
         "traceback",
-        "typing"
+        "typing*"
       ]
     },
     {
-      "name": "extractors",
+      "name": "infrastructure",
+      "core": false,
+      "patterns": ["extract_common"]
+    },
+    {
+      "name": "adapters",
       "core": false,
       "patterns": [
         "extract_*",
         "check_self",
+        "check_architecture",
         "extract_typescript_native",
         "rust_extractor",
         "architecture-extractors/go-extractor"
@@ -82,16 +87,19 @@
   "allowed": {
     "core": ["core", "stdlib"],
     "stdlib": ["stdlib"],
-    "extractors": ["core", "stdlib", "extractors", "external"],
+    "adapters": ["core", "stdlib", "adapters", "infrastructure", "external"],
+    "infrastructure": ["stdlib", "infrastructure"],
     "external": ["external"]
   },
   "forbidden": {
     "core": [
       "extract_*",
       "check_self",
+      "check_architecture",
       "extract_typescript_native",
       "rust_extractor",
-      "architecture-extractors/go-extractor"
+      "architecture-extractors/go-extractor",
+      "extract_common"
     ]
   }
 }

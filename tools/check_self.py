@@ -31,17 +31,22 @@ def merge_facts(paths):
     dependencies = {}
     unparsed = {}
 
-    for path in paths:
+    for path, include_prefix in paths:
         with open(path, "r", encoding="utf-8") as handle:
             facts = json.load(handle)
 
+        def keep(source):
+            return not excluded(source) and (
+                include_prefix is None or source.startswith(include_prefix)
+            )
+
         for module in facts.get("modules", []):
-            if excluded(module["path"]):
+            if not keep(module["path"]):
                 continue
             modules[(module["name"], module["path"])] = module
 
         for dependency in facts.get("dependencies", []):
-            if excluded(dependency["source"]):
+            if not keep(dependency["source"]):
                 continue
             key = (
                 dependency["from"],
@@ -53,7 +58,7 @@ def merge_facts(paths):
             dependencies[key] = dependency
 
         for item in facts.get("unparsed", []):
-            if excluded(item["source"]):
+            if not keep(item["source"]):
                 continue
             key = (item["source"], item["line"], item["reason"])
             unparsed[key] = item
@@ -80,11 +85,10 @@ def main():
     with tempfile.TemporaryDirectory() as directory:
         paths = []
 
-        def output_path(name):
+        def output_path(name, include_prefix=None):
             path = os.path.join(directory, name + ".json")
-            paths.append(path)
+            paths.append((path, include_prefix))
             return path
-
         run(
             [
                 sys.executable,
@@ -93,6 +97,16 @@ def main():
                 "tools",
                 "--out",
                 output_path("python"),
+            ]
+        )
+        run(
+            [
+                sys.executable,
+                "tools/extract_python.py",
+                "--root",
+                ".",
+                "--out",
+                output_path("core", "architecture_core/"),
             ]
         )
         run(

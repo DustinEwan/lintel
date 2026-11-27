@@ -201,10 +201,11 @@ python3 tools/check_self.py
 ```
 
 The Python tools are dependency-free. `tools/extract_python.py` is the extractor for Python projects and uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `tools/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
+Core logic lives in `architecture_core/`: pure fact types, policy matching, and checker rules. `tools/` contains CLI adapters and extractors that translate source syntax into facts; `extract_common.py` is filesystem/JSON infrastructure. Dependencies point inward: adapters -> core; core has no source or CLI dependencies.
 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
 
-Dogfooding: `python3 tools/check_self.py` extracts `tools/` as its own import root, merges facts from the Python, Rust, Go, and TypeScript extractors, and checks them against `tools/self_policy.json`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
+Dogfooding: `python3 tools/check_self.py` extracts `architecture_core/` and `tools/` as separate import roots, merges facts from all extractors, and checks them against `tools/self_policy.json`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
 
 Limits:
 
