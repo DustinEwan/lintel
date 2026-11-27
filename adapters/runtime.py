@@ -6,6 +6,7 @@ from dataclasses import asdict
 import glob
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -137,8 +138,13 @@ class ArchitectureRuntime:
         return path if os.path.isabs(path) else os.path.join(self.root, path)
 
     def run(self, command, cwd=None):
+        env = os.environ.copy()
+        if command and command[0] in {"lake", "elan"}:
+            elan_bin = os.path.expanduser("~/.elan/bin")
+            if os.path.isdir(elan_bin) and not shutil.which(command[0], path=env.get("PATH", "")):
+                env["PATH"] = elan_bin + os.pathsep + env.get("PATH", "")
         result = subprocess.run(
-            command, cwd=cwd or self.root, capture_output=True, text=True
+            command, cwd=cwd or self.root, capture_output=True, text=True, env=env
         )
         if result.returncode != 0:
             raise SystemExit(result.stderr.strip() or result.stdout.strip())

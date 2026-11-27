@@ -71,5 +71,5 @@ jobs:
 
       - name: Generate and check Lean instance
         run: |
-          source "$HOME/.elan/env"
           python3 external/cli/architecture.py generate-lean --out /tmp/ArchitectureFacts.lean
+
