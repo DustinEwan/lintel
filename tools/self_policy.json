@@ -7,8 +7,8 @@
       "core": true,
       "patterns": [
         "Architecture",
-        "tools.check_architecture",
-        "tools.extract_common"
+        "check_architecture",
+        "extract_common"
       ]
     },
     {
@@ -66,9 +66,9 @@
       "name": "extractors",
       "core": false,
       "patterns": [
-        "tools.extract_*",
-        "tools.check_self",
-        "tools/extract_typescript_native",
+        "extract_*",
+        "check_self",
+        "extract_typescript_native",
         "rust_extractor",
         "architecture-extractors/go-extractor"
       ]
@@ -87,9 +87,9 @@
   },
   "forbidden": {
     "core": [
-      "tools.extract_*",
-      "tools.check_self",
-      "tools/extract_typescript_native",
+      "extract_*",
+      "check_self",
+      "extract_typescript_native",
       "rust_extractor",
       "architecture-extractors/go-extractor"
     ]

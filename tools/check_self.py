@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check this repository's own architecture with the project's extractors."""
 
+import argparse
 import json
 import os
 import subprocess
@@ -72,6 +73,10 @@ def merge_facts(paths):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", help="write merged facts to this path")
+    args = parser.parse_args()
+
     with tempfile.TemporaryDirectory() as directory:
         paths = []
 
@@ -85,7 +90,7 @@ def main():
                 sys.executable,
                 "tools/extract_python.py",
                 "--root",
-                ".",
+                "tools",
                 "--out",
                 output_path("python"),
             ]
@@ -95,7 +100,7 @@ def main():
                 sys.executable,
                 "tools/extract_typescript.py",
                 "--root",
-                ".",
+                "tools",
                 "--out",
                 output_path("typescript"),
             ]
@@ -124,10 +129,19 @@ def main():
             ]
         )
 
+        facts = merge_facts(paths)
+
+        def write_facts(path):
+            parent = os.path.dirname(os.path.abspath(path))
+            os.makedirs(parent, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(facts, handle, indent=2)
+                handle.write("\n")
+
         facts_path = os.path.join(directory, "facts.json")
-        with open(facts_path, "w", encoding="utf-8") as handle:
-            json.dump(merge_facts(paths), handle, indent=2)
-            handle.write("\n")
+        write_facts(facts_path)
+        if args.out:
+            write_facts(args.out)
 
         result = subprocess.run(
             [

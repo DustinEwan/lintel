@@ -204,7 +204,7 @@ The Python tools are dependency-free. `tools/extract_python.py` is the extractor
 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
 
-Dogfooding: `python3 tools/check_self.py` extracts this repository's own implementation, merges the facts, and checks them against `tools/self_policy.json`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
+Dogfooding: `python3 tools/check_self.py` extracts `tools/` as its own import root, merges facts from the Python, Rust, Go, and TypeScript extractors, and checks them against `tools/self_policy.json`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
 
 Limits:
 
