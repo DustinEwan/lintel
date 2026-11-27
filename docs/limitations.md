@@ -18,7 +18,7 @@ These limits remain true, but Lintel fails closed or provides a reviewed path in
 | Unrecognized Rust visibility forms, `macro_rules!`, and non-literal `include!`/`#[path]` | Python scanner reports them explicitly | `unparsed_source` |
 | Rust literal `#[path]` and `include!` | Python scanner resolves literal module redirects and include chains | `macro_rules!` and non-literal paths remain unparsed |
 | Rust workspace roots | Native extractor refuses to attribute all members to one package | `unparsed_source` |
-| Build-tagged Go files | Python scanner reports constrained files explicitly | `unparsed_source` |
+| Build-tagged Go files | Python scanner evaluates `//go:build` and `// +build` against host `GOOS`/`GOARCH` and excludes fully evaluated inactive files | Indeterminate constraints remain `unparsed_source` |
 | Multi-line TypeScript `from` clauses | Python scanner now joins multi-line import/export clauses before scanning (PR #4); native extractor also handles them | Non-literal dynamic dependencies remain unparsed |
 | Toolchain-backed extraction unavailable | Python scanners are dependency-free and are the installed default | Native extractors remain source-checkout tools requiring Rust, Go, or Node/TypeScript |
 | Reflection, generated code, runtime dependency injection | Detected cases become `semantic_review` with fingerprints and reasons | Review decision is required; no automatic pass |
@@ -44,7 +44,6 @@ These are local, testable changes in language adapters. Only these gaps have Git
 
 | Gap | Issue | Current behavior | Location | Work required |
 | --- | --- | --- | --- | --- |
-| Go build constraints | [#3](https://github.com/DustinEwan/lintel/issues/3) | Every build-tagged file is reported as `unparsed_source` | `lintel/adapters/go_extractor.py` | Parse `//go:build` and `// +build`, select files by host `GOOS`/`GOARCH`, and keep indeterminate constraints unparsed |
 
 Not quick wins:
 
