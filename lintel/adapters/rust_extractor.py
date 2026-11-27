@@ -18,6 +18,27 @@ UNSUPPORTED_RUST = [
     (re.compile(r"\bmacro_rules!\s*"), "macro_rules! can generate imports"),
 ]
 
+PATH_REDIRECT_RE = re.compile(
+    r'#\s*\[\s*path\s*=\s*(?P<quote>["\'])(?P<path>[^"\']+)\1\s*\]'
+    r'\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;'
+)
+INCLUDE_LITERAL_RE = re.compile(
+    r'\binclude!\s*\(\s*(?P<quote>["\'])(?P<path>[^"\']+)\1\s*\)\s*;'
+)
+
+
+def line_of(text, offset):
+    return text.count("\n", 0, offset) + 1
+
+
+def literal_target(path, spec, known_files, root, unparsed, line, reason):
+    target = os.path.normpath(os.path.join(os.path.dirname(path), spec))
+    if target not in known_files:
+        unparsed.append({"source": rel(path, root), "line": line, "reason": reason})
+        return None
+    return target
+
+
 
 def crate_name(root):
     cargo = os.path.join(root, "Cargo.toml")
@@ -101,7 +122,67 @@ def resolve(path, current, crate, modules, local_top):
 def extract(root):
     crate = crate_name(root)
     files = list(iter_files(root, (".rs",)))
+    texts = {}
+    for path in files:
+        with open(path, "r", encoding="utf-8") as f:
+            texts[path] = f.read()
+
     module_by_file = {path: module_name(path, root, crate) for path in files}
+    unparsed = []
+    handled = {path: set() for path in files}
+    redirects = {}
+    includes = {}
+
+    for path in files:
+        text = texts[path]
+        path_specs = []
+        for match in PATH_REDIRECT_RE.finditer(text):
+            handled[path].add(match.start())
+            target = literal_target(
+                path,
+                match.group("path"),
+                set(module_by_file),
+                root,
+                unparsed,
+                line_of(text, match.start()),
+                "#[path] target not found",
+            )
+            if target:
+                path_specs.append((match.group("name"), target))
+        redirects[path] = path_specs
+
+        include_specs = []
+        for match in INCLUDE_LITERAL_RE.finditer(text):
+            handled[path].add(match.start())
+            target = literal_target(
+                path,
+                match.group("path"),
+                set(texts),
+                root,
+                unparsed,
+                line_of(text, match.start()),
+                "include! target not found",
+            )
+            if target:
+                include_specs.append((target, line_of(text, match.start())))
+        includes[path] = include_specs
+
+    for _ in range(len(files) + 1):
+        changed = False
+        for path, specs in redirects.items():
+            parent = module_by_file[path]
+            for name, target in specs:
+                new_name = f"{parent}::{name}"
+                if module_by_file[target] != new_name:
+                    module_by_file[target] = new_name
+                    changed = True
+        if not changed:
+            break
+
+    included_files = {target for specs in includes.values() for target, _ in specs}
+    module_by_file = {
+        path: name for path, name in module_by_file.items() if path not in included_files
+    }
     modules = sorted(set(module_by_file.values()))
     local_top = {
         name.split("::")[1]
@@ -110,11 +191,18 @@ def extract(root):
     }
 
     dependencies = []
-    unparsed = []
-    for path in files:
-        with open(path, "r", encoding="utf-8") as f:
-            text = f.read()
-        current = module_by_file[path]
+
+    def scan(path, current, stack):
+        if path in stack:
+            unparsed.append(
+                {
+                    "source": rel(path, root),
+                    "line": 1,
+                    "reason": "include cycle",
+                }
+            )
+            return
+        text = texts[path]
         source = rel(path, root)
         matched_uses = {match.start() for match in USE_RE.finditer(text)}
         use_starts = {match.start() for match in USE_START_RE.finditer(text)}
@@ -128,18 +216,16 @@ def extract(root):
                 else "unterminated or unsupported use statement"
             )
             unparsed.append(
-                {
-                    "source": source,
-                    "line": text.count("\n", 0, start) + 1,
-                    "reason": reason,
-                }
+                {"source": source, "line": line_of(text, start), "reason": reason}
             )
         for pattern, reason in UNSUPPORTED_RUST:
             for match in pattern.finditer(text):
+                if match.start() in handled[path]:
+                    continue
                 unparsed.append(
                     {
                         "source": source,
-                        "line": text.count("\n", 0, match.start()) + 1,
+                        "line": line_of(text, match.start()),
                         "reason": reason,
                     }
                 )
@@ -150,11 +236,10 @@ def extract(root):
                     "to": match.group(1),
                     "kind": "extern_crate",
                     "source": source,
-                    "line": text.count("\n", 0, match.start()) + 1,
+                    "line": line_of(text, match.start()),
                 }
             )
         for match in USE_RE.finditer(text):
-            line = text.count("\n", 0, match.start()) + 1
             for use_path in split_use_paths(match.group(1)):
                 target = resolve(use_path, current, crate, set(modules), local_top)
                 if target and target != current:
@@ -164,9 +249,16 @@ def extract(root):
                             "to": target,
                             "kind": "use",
                             "source": source,
-                            "line": text.count("\n", 0, match.start()) + 1,
+                            "line": line_of(text, match.start()),
                         }
                     )
+        for target, _ in includes[path]:
+            scan(target, current, stack | {path})
+
+    for path in files:
+        if path in included_files:
+            continue
+        scan(path, module_by_file[path], set())
 
     return {
         "version": 1,
