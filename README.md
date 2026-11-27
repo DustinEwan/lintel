@@ -135,8 +135,15 @@ Proven properties:
 - `region_path_non_outward`: dependency paths are non-outward in a layered region order.
 - `core_region_path`: a dependency path from the core remains in the core's region.
 - `substitution`: equivalent implementations of a core-owned capability can be exchanged without changing a core program's result.
+- `path_allowed`: every dependency path obeys a transitive region-edge policy.
+- `strict_region_path`: every dependency path in a strict layered architecture moves inward.
+- `strict_acyclic`: a strictly layered dependency graph is acyclic.
+- `capability_adapter_substitution`: equivalent adapters for the same capability port are substitutable.
+- Concrete `demoArchitecture`: an application module cannot reach a Postgres adapter, and `demo_acyclic` proves the example graph has no dependency cycle.
 
-The spec also defines `Port`, `Adapter`, `LayeredArchitecture`, `Capability`, and `Implementation` to connect the dependency model with boundary contracts and substitutability.
+The spec also defines `Port`, `Adapter`, `CapabilityPort`, `CapabilityAdapter`, `RegionOrder`, `EdgePolicy`, `PolicyArchitecture`, `StrictLayeredArchitecture`, and `Capability` to connect the dependency model with boundary contracts and substitutability.
+
+Acyclicity is scoped to dependency graphs extracted below the package or project-reference level. Cargo rejects ordinary package dependency cycles and TypeScript project references reject reference cycles; the remaining practical gaps are module-level cycles inside a crate/project and dev/test-only edges.
 
 This verifies the **formal model**, not that an arbitrary codebase satisfies it. Applying the spec to real code requires a language-specific extractor that produces `Module` and `dep` facts from imports, calls, or package dependencies.
 

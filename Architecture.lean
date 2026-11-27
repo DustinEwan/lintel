@@ -27,6 +27,10 @@ inductive Path {α : Type u} (r : α → α → Prop) : α → α → Prop where
   | step {a b : α} : r a b → Path r a b
   | trans {a b c : α} : Path r a b → r b c → Path r a c
 
+/-- A dependency relation is acyclic when no module reaches itself. -/
+def Acyclic {α : Type u} (r : α → α → Prop) : Prop :=
+  ∀ a : α, ¬ Path r a a
+
 /-- Every path starting in the core stays in the core. -/
 theorem core_closed_path (A : Architecture) {a b : A.Module}
     (ha : A.Core a) (h : Path A.dep a b) : A.Core b := by
@@ -100,6 +104,59 @@ theorem core_region_path (A : LayeredArchitecture) {a b : A.Module}
   have hb : A.Core b := core_closed_path A.arch ha h
   exact A.region_of_core b hb
 
+/-- A transitive policy describing which region edges are allowed. -/
+structure EdgePolicy (ρ : Type u) where
+  allowed : ρ → ρ → Prop
+  allowed_refl : ∀ r : ρ, allowed r r
+  allowed_trans : ∀ {r s t : ρ}, allowed r s → allowed s t → allowed r t
+
+/-- An architecture whose dependency edges obey a region policy. -/
+structure PolicyArchitecture where
+  Module : Type u
+  Region : Type v
+  dep : Module → Module → Prop
+  region : Module → Region
+  policy : EdgePolicy Region
+  dep_allowed : ∀ {a b : Module}, dep a b → policy.allowed (region b) (region a)
+
+/-- Every dependency path obeys the transitive edge policy. -/
+theorem path_allowed (A : PolicyArchitecture) {a b : A.Module}
+    (h : Path A.dep a b) : A.policy.allowed (A.region b) (A.region a) := by
+  induction h with
+  | step hdep =>
+      exact A.dep_allowed hdep
+  | trans hp hd ih =>
+      exact A.policy.allowed_trans (A.dep_allowed hd) ih
+
+/-- A strict order for regions with no self-dependencies. -/
+structure StrictOrder (ρ : Type u) where
+  lt : ρ → ρ → Prop
+  irrefl : ∀ r : ρ, ¬ lt r r
+  trans : ∀ {r s t : ρ}, lt r s → lt s t → lt r t
+
+/-- A layered architecture where every direct edge is strictly inward. -/
+structure StrictLayeredArchitecture where
+  Module : Type u
+  Region : Type v
+  dep : Module → Module → Prop
+  region : Module → Region
+  order : StrictOrder Region
+  inward_strict : ∀ {a b : Module}, dep a b → order.lt (region b) (region a)
+
+/-- Every dependency path is strictly inward. -/
+theorem strict_region_path (A : StrictLayeredArchitecture) {a b : A.Module}
+    (h : Path A.dep a b) : A.order.lt (A.region b) (A.region a) := by
+  induction h with
+  | step hdep =>
+      exact A.inward_strict hdep
+  | trans hp hd ih =>
+      exact A.order.trans (A.inward_strict hd) ih
+
+/-- A strictly layered dependency graph is acyclic. -/
+theorem strict_acyclic (A : StrictLayeredArchitecture) : Acyclic A.dep := by
+  intro a h
+  exact A.order.irrefl (A.region a) (strict_region_path A h)
+
 /-- A capability describes the operations a core may require from an adapter. -/
 structure Capability where
   Op : Type u
@@ -131,3 +188,92 @@ theorem substitution {C : Capability} {R : Type w} (program : Program C R)
         cases hfun
         rfl
   exact congrArg program hij
+
+/-- A port that also declares the capability provided by its adapters. -/
+structure CapabilityPort (A : Architecture) (C : Capability) extends Port A
+
+/-- An outer adapter with an implementation of the port's capability. -/
+structure CapabilityAdapter (A : Architecture) (C : Capability)
+    (p : CapabilityPort A C) extends Adapter A p.toPort where
+  implementation : Implementation C
+
+/-- Equivalent capability adapters are substitutable in a core program. -/
+theorem capability_adapter_substitution {A : Architecture} {C : Capability}
+    {p : CapabilityPort A C} {R : Type w} (program : Program C R)
+    (a b : CapabilityAdapter A C p)
+    (h : equivalent a.implementation b.implementation) :
+    program a.implementation = program b.implementation :=
+  substitution program h
+
+/-!
+## Concrete finite instance
+
+A small graph demonstrates the abstract rules on decidable data.
+-/
+
+inductive DemoModule where
+  | domain
+  | application
+  | postgresRepo
+  | httpAdapter
+  deriving DecidableEq
+
+def demoDep : DemoModule → DemoModule → Prop
+  | .application, .domain => True
+  | .postgresRepo, .application => True
+  | .httpAdapter, .application => True
+  | _, _ => False
+
+def demoCore : Set DemoModule
+  | .domain => True
+  | .application => True
+  | .postgresRepo => False
+  | .httpAdapter => False
+
+def demoArchitecture : Architecture :=
+  { Module := DemoModule
+    dep := demoDep
+    Core := demoCore
+    core_closed := by
+      intro a b ha hdep
+      cases a <;> cases b <;> simp [demoCore, demoDep] at * }
+
+example : ¬ Path demoArchitecture.dep DemoModule.application DemoModule.postgresRepo := by
+  exact core_cannot_reach_outer demoArchitecture
+    (by simp [demoArchitecture, demoCore])
+    (by simp [demoArchitecture, demoCore])
+
+inductive DemoRegion where
+  | domain
+  | application
+  | adapters
+  deriving DecidableEq
+
+def demoLt : DemoRegion → DemoRegion → Prop
+  | .domain, .application => True
+  | .domain, .adapters => True
+  | .application, .adapters => True
+  | _, _ => False
+
+def demoStrict : StrictLayeredArchitecture :=
+  { Module := DemoModule
+    Region := DemoRegion
+    dep := demoDep
+    region := fun m => match m with
+      | .domain => .domain
+      | .application => .application
+      | .postgresRepo => .adapters
+      | .httpAdapter => .adapters
+    order :=
+      { lt := demoLt
+        irrefl := by
+          intro r
+          cases r <;> simp [demoLt]
+        trans := by
+          intro r s t h1 h2
+          cases r <;> cases s <;> cases t <;> simp [demoLt] at * }
+    inward_strict := by
+      intro a b hdep
+      cases a <;> cases b <;> simp [demoDep, demoLt] at * }
+
+theorem demo_acyclic : Acyclic demoDep := strict_acyclic demoStrict
