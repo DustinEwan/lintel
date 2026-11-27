@@ -211,7 +211,7 @@ Dogfood configuration lives in `architecture.toml` at the repo root:
 ```toml
 version = 1
 
-[dogfood]
+[paths]
 core_root = "architecture_core"
 adapters_root = "adapters"
 policy = "adapters/self_policy.json"

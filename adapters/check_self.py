@@ -49,9 +49,9 @@ def load_config(path, required):
             data = tomllib.load(handle)
         except tomllib.TOMLDecodeError as error:
             raise SystemExit(f"invalid config {full}: {error}")
-    config = data.get("dogfood", {})
+    config = data.get("paths", {})
     if not isinstance(config, dict):
-        raise SystemExit(f"config {full}: dogfood must be a table")
+        raise SystemExit(f"config {full}: paths must be a table")
     return config
 
 
