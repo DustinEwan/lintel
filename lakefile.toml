@@ -1,0 +1,7 @@
+name = "architecture_spec"
+version = "0.1.0"
+
+defaultTargets = ["Architecture"]
+
+[[lean_lib]]
+name = "Architecture"

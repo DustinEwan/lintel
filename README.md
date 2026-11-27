@@ -115,3 +115,36 @@ These patterns are complementary lenses rather than mutually exclusive choices:
 - **MVC/MVVM/VIPER** organizes the delivery mechanism at the edge.
 
 A service can therefore have a DDD domain model, Clean-style use cases, Hexagonal ports, MVC at the web edge, and a mostly functional core without contradiction.
+
+## Formal Lean spec
+
+`Architecture.lean` formalizes the common philosophy in Lean 4. The spec models a system as:
+
+- `Module`: a set of modules or components.
+- `dep`: a source-code dependency relation.
+- `Core : Set Module`: a predicate identifying core modules.
+- `core_closed`: every dependency of a core module is also core.
+
+The model deliberately avoids a unique core module or rank-based isolation. `Core` is a set, so multiple core modules are supported, and an outer module cannot become reachable from the core merely by sharing a rank or region.
+
+Proven properties:
+
+- `core_closed_path`: every transitive dependency path from the core remains in the core.
+- `core_cannot_reach_outer`: no core module can transitively reach a non-core module.
+- `adapter_unreachable_from_core`: no core module can reach an outer adapter.
+- `region_path_non_outward`: dependency paths are non-outward in a layered region order.
+- `core_region_path`: a dependency path from the core remains in the core's region.
+- `substitution`: equivalent implementations of a core-owned capability can be exchanged without changing a core program's result.
+
+The spec also defines `Port`, `Adapter`, `LayeredArchitecture`, `Capability`, and `Implementation` to connect the dependency model with boundary contracts and substitutability.
+
+This verifies the **formal model**, not that an arbitrary codebase satisfies it. Applying the spec to real code requires a language-specific extractor that produces `Module` and `dep` facts from imports, calls, or package dependencies.
+
+Toolchain: Lean 4.36.0, pinned in `lean-toolchain`.
+
+Verify with:
+
+```sh
+source "$HOME/.elan/env"
+lake build
+```
