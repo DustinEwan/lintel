@@ -4,23 +4,6 @@ Lintel checks and governs inward architecture boundaries for agentic codebases. 
 
 The architecture philosophy behind the policy—Clean, Hexagonal, Onion, and adjacent patterns—is in [docs/philosophy.md](docs/philosophy.md).
 
-## Boundary surfaces
-
-An executable is an **outer boundary surface**, not an adapter implementation. `lintel/cli/` owns argv parsing, environment access, process exit codes, and terminal I/O. Those concerns never move inward: a CLI wrapper parses input, composes concrete adapters, and calls a core use case.
-
-```text
-lintel/cli/*         argv, env, exit status, composition
-        ↓
-lintel/adapters/*    files, subprocesses, JSON, language toolchains
-        ↓
-lintel/core/*        facts, policy, rules, workflows behind ports
-```
-
-
-If an adapter imports `argparse`, reads `sys.argv`, or owns process exit behavior, that is evidence of inverted dependency direction. Tests, examples, fixtures, generated code, and vendor code are **scopes**, not architectural layers. `external` means unowned dependency or outside system, not a peer layer for owned code.
-
-The Lean spec encodes this as `BoundaryConcern`, `BoundarySurface`, `EntrypointBoundary`, `surface_unreachable_from_core`, and `adapter_not_cli_concern`.
-
 ## Formal Lean spec
 
 `lintel/Lintel.lean` formalizes the common philosophy in Lean 4. The spec models a system as:
