@@ -16,6 +16,13 @@ patterns = ["examples/**"]
 [scopes.fixture]
 patterns = ["tests/fixtures/**"]
 
+[scopes.build_artifact]
+patterns = [
+  "adapters/extract_typescript_native.mjs",
+  "adapters/go-extractor/main.go",
+  "adapters/rust-extractor/src/main.rs"
+]
+
 [layers.ports]
 priority = 10
 core = true
@@ -178,4 +185,19 @@ owner = "entrypoints"
 [[executables]]
 name = "extract_typescript"
 path = "external/cli/extract_typescript.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_rust_native"
+path = "external/cli/extract_rust_native.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_go_native"
+path = "external/cli/extract_go_native.py"
+owner = "entrypoints"
+
+[[executables]]
+name = "extract_typescript_native"
+path = "external/cli/extract_typescript_native.py"
 owner = "entrypoints"

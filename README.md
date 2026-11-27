@@ -206,19 +206,20 @@ Usage:
 
 ```sh
 python3 external/cli/extract_rust.py --root /path/to/project --out rust-facts.json
-cargo run --manifest-path adapters/rust-extractor/Cargo.toml -- --root /path/to/project --out rust-native-facts.json
+python3 external/cli/extract_rust_native.py --root /path/to/project --out rust-native-facts.json
 python3 external/cli/extract_go.py --root /path/to/project --out go-facts.json
 python3 external/cli/extract_typescript.py --root /path/to/project --out ts-facts.json
 python3 external/cli/extract_python.py --root /path/to/project --out py-facts.json
-go run ./adapters/go-extractor/main.go --root /path/to/project --out go-native-facts.json
+python3 external/cli/extract_go_native.py --root /path/to/project --out go-native-facts.json
 npm install
-node adapters/extract_typescript_native.mjs --root /path/to/project --out ts-native-facts.json
+python3 external/cli/extract_typescript_native.py --root /path/to/project --out ts-native-facts.json
 python3 external/cli/check_architecture.py rust-facts.json --config architecture.toml
 python3 external/cli/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
 python3 external/cli/check_self.py
 ```
 
 The Python extractor libraries are dependency-free. `adapters/python_extractor.py` uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `adapters/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
+Native extractor programs inside `adapters/` are build artifacts invoked by `external/cli` wrappers. `architecture.toml` records them under `[scopes.build_artifact]` and declares the wrapper surfaces under `[[executables]]`; their argv parsing is internal to the artifact, not the repository's public boundary.
 Core logic lives in `architecture_core/`: pure fact types, policy matching, checker rules, ports, and use cases. `adapters/` contains concrete mechanisms that translate source syntax into facts and perform file/process I/O; `adapters/runtime.py` composes those mechanisms behind core ports. `external/cli/` contains executable surfaces only. Dependencies point inward: entrypoints -> adapters -> core; core has no CLI, subprocess, JSON-I/O, or filesystem dependencies.
 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
