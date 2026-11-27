@@ -99,6 +99,17 @@ lintel --root /path/to/project accept-baseline
 lintel --root /path/to/project generate-lean --out /path/to/LintelFacts.lean [--no-check]
 ```
 
+When the governed project is the current directory, omit `--root`; it defaults there:
+
+```sh
+lintel check
+lintel check --out facts.json
+lintel check facts.json --config lintel.toml
+lintel generate-lean --facts facts.json
+```
+
+`check --out facts.json` writes merged facts only after config and lock validation succeed. Rechecking a facts file with `--config` (the default `lintel.toml` or an explicit path) validates the lock and applies the baseline; `--policy` is fixture compatibility and skips lock and baseline handling.
+
 `lintel init` rewrites config and baseline files, so use it only for new projects:
 
 ```sh
@@ -143,7 +154,7 @@ Python parse failures are recorded in an `unparsed` array and reported as `unpar
 Every harness calls one command:
 
 ```sh
-lintel --root . hook <session-start|post-edit|stop|review-request>
+lintel hook <session-start|post-edit|stop|review-request>
 ```
 
 It prints JSON with `block`, `context`, `findings`, and `commands`. Findings carry stable fingerprints. `block` is true for `post-edit` and `stop` when unresolved violations exist. `HARNESS_SETUP.md` shows hook wiring for Claude Code, OpenCode, Pi, and a generic shell fallback.
@@ -151,7 +162,7 @@ It prints JSON with `block`, `context`, `findings`, and `commands`. Findings car
 Semantic decisions are explicit:
 
 ```sh
-lintel --root . review <fingerprint> --decision compliant --reason "port is intentionally typed"
+lintel review <fingerprint> --decision compliant --reason "port is intentionally typed"
 ```
 
 `compliant` accepts the finding and records its source for generated Lean. `violating` and `needs-human-review` leave the finding pending. Every decision requires a reason and updates the baseline and lock through a reviewable diff.

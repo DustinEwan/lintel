@@ -26,12 +26,12 @@ _CONTEXT = {
 }
 
 _COMMANDS = {
-    "session-start": ("lintel --root . check --format json",),
-    "post-edit": ("lintel --root . check --format json",),
-    "stop": ("lintel --root . check --format json",),
+    "session-start": ("lintel check --format json",),
+    "post-edit": ("lintel check --format json",),
+    "stop": ("lintel check --format json",),
     "review-request": (
-        "lintel --root . hook post-edit",
-        "lintel --root . check --format json",
+        "lintel hook post-edit",
+        "lintel check --format json",
     ),
 }
 

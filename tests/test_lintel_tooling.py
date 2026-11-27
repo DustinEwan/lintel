@@ -767,7 +767,7 @@ class HookProtocolTests(unittest.TestCase):
             )
         payload = json.loads(output)
         self.assertFalse(payload["block"])
-        self.assertIn("lintel --root . check --format json", payload["commands"])
+        self.assertIn("lintel check --format json", payload["commands"])
 
 
 class ReviewDecisionTests(unittest.TestCase):
@@ -821,11 +821,11 @@ class AgentInstructionTests(unittest.TestCase):
                 with open(os.path.join(directory, name), encoding="utf-8") as handle:
                     self.assertEqual(handle.read(), content)
             with open(os.path.join(directory, "AGENTS.md"), encoding="utf-8") as handle:
-                self.assertIn("lintel --root . hook", handle.read())
+                self.assertIn("lintel hook", handle.read())
             with open(os.path.join(directory, "SKILL.md"), encoding="utf-8") as handle:
-                self.assertIn("lintel --root . check", handle.read())
+                self.assertIn("lintel check", handle.read())
             with open(os.path.join(directory, "HARNESS_SETUP.md"), encoding="utf-8") as handle:
-                self.assertIn("lintel --root . hook", handle.read())
+                self.assertIn("lintel hook", handle.read())
 
 if __name__ == "__main__":
     unittest.main()
