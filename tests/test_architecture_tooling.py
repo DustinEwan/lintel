@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -9,7 +10,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "adapters"))
 
-from adapters import architecture_config, contract_facts, contract_lock, lean_generator
+from adapters import architecture_config, contract_facts, contract_lock, incremental_cache, lean_generator
 from adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from adapters.runtime import ArchitectureRuntime
 from architecture_core.checker import (
@@ -342,7 +343,103 @@ class ScaffoldTests(unittest.TestCase):
 
 
 
+
+class IncrementalCacheTests(unittest.TestCase):
+    def test_fact_cache_hit_avoids_reextraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "adapters"))
+            source = os.path.join(tmp, "adapters", "demo.py")
+            with open(source, "w", encoding="utf-8") as handle:
+                handle.write("value = 1\n")
+            runtime = ArchitectureRuntime(tmp)
+            config = runtime.load_self_config(CONFIG_PATH, True)
+            calls = []
+
+            def fake_run(command, cwd=None):
+                calls.append(command)
+                out = command[command.index("--out") + 1]
+                with open(out, "w", encoding="utf-8") as handle:
+                    json.dump(
+                        {
+                            "modules": [
+                                {"name": "adapters.demo", "path": "adapters/demo.py"}
+                            ],
+                            "dependencies": [],
+                        },
+                        handle,
+                    )
+                return None
+
+            with patch.object(runtime, "run", side_effect=fake_run):
+                first = runtime.collect_self_facts(config, PathOverrides())
+                self.assertEqual(len(calls), 2)
+                calls.clear()
+                second = runtime.collect_self_facts(config, PathOverrides())
+                self.assertEqual(calls, [])
+                self.assertEqual(first, second)
+                with open(source, "w", encoding="utf-8") as handle:
+                    handle.write("value = 2\n")
+                runtime.collect_self_facts(config, PathOverrides())
+                self.assertEqual(len(calls), 2)
+
+    def test_lean_check_cache_tracks_generated_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = ArchitectureRuntime(tmp)
+            output = os.path.join(tmp, "GeneratedFacts.lean")
+            with open(output, "w", encoding="utf-8") as handle:
+                handle.write("def generated := 1\n")
+            key = runtime.lean_check_key(output)
+            self.assertFalse(runtime.lean_check_is_cached(key))
+            runtime.mark_lean_check(key)
+            self.assertTrue(runtime.lean_check_is_cached(key))
+            with open(output, "w", encoding="utf-8") as handle:
+                handle.write("def generated := 2\n")
+            changed = runtime.lean_check_key(output)
+            self.assertNotEqual(changed, key)
+            self.assertFalse(runtime.lean_check_is_cached(changed))
+
+    def test_malformed_cache_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(incremental_cache.cache_path(tmp), "w", encoding="utf-8") as handle:
+                handle.write("{not json")
+            self.assertEqual(incremental_cache.load_facts(tmp, "key"), None)
+            self.assertFalse(incremental_cache.lean_ok(tmp, "key"))
 class LeanGeneratorTests(unittest.TestCase):
+
+    def test_generated_instance_is_deterministic(self):
+        script = """
+import sys
+root = sys.argv[1]
+sys.path.insert(0, root)
+from adapters import architecture_config, lean_generator
+from architecture_core.model import Dependency, FactSet, Module, policy_from_dict
+config = architecture_config.load_config(root + "/architecture.toml")
+policy = policy_from_dict(architecture_config.policy_from_config(config))
+facts = FactSet(
+    modules=(
+        Module("adapters.one", "adapters/one.py"),
+        Module("architecture_core.two", "architecture_core/two.py"),
+        Module("external.cli.three", "external/cli/three.py"),
+    ),
+    dependencies=(
+        Dependency("adapters.one", "architecture_core.two"),
+        Dependency("external.cli.three", "adapters.one"),
+    ),
+)
+sys.stdout.write(lean_generator.generate(facts, policy))
+"""
+        outputs = []
+        for seed in ("1", "2"):
+            env = os.environ.copy()
+            env["PYTHONHASHSEED"] = seed
+            outputs.append(
+                subprocess.check_output(
+                    [sys.executable, "-c", script, ROOT],
+                    env=env,
+                    text=True,
+                )
+            )
+        self.assertEqual(outputs[0], outputs[1])
     def test_generated_instance_uses_spec_structures(self):
         policy = real_policy()
         facts = FactSet(

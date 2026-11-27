@@ -75,6 +75,14 @@ source suffixes is intended use of the contract, not an escape hatch.
 `update-lock` records the reviewed change. CODEOWNERS protects the config and
 lock so the change cannot bypass review.
 
+## 6. Incremental cache bypass
+
+`check --no-cache` and `generate-lean --no-cache` force full extraction and
+rechecking. The default cache is derived, untracked state in
+`architecture.cache.json`; it never narrows the checked universe. A stale,
+missing, or malformed cache falls back to full extraction, and global rules are
+always re-run on the merged facts.
+
 ## Non-goals
 
 - No global disable switch for violations.

@@ -111,7 +111,7 @@ def generate(facts, policy, accepted_review_sources=()):
     for source, target in edges:
         successors[source].append(target)
         indegree[target] += 1
-    ready = [module for module in module_names if indegree[module] == 0]
+    ready = sorted(module for module in module_names if indegree[module] == 0)
     heapq.heapify(ready)
     order = 0
     while ready:
@@ -152,7 +152,7 @@ def generate(facts, policy, accepted_review_sources=()):
 
     assigned_modules = {}
     expected_modules = {}
-    for module in module_names:
+    for module in sorted(module_names):
         path = next(
             (item.path for item in facts.modules if item.name == module), ""
         )
@@ -311,13 +311,13 @@ def generate(facts, policy, accepted_review_sources=()):
         scope = scope_expected.get(name, scope_assignments[name][1])
         lines.append(f"  | GeneratedPath.{ctor} => GeneratedScope.{scopes[scope]}")
     lines.extend(["", "def generatedRegion : GeneratedModule → GeneratedRegion"])
-    for module in module_names:
+    for module in sorted(module_names):
         lines.append(
             f"  | GeneratedModule.{modules[module]} => "
             f"GeneratedRegion.{region_index[source_to_region[module]]}"
         )
     lines.extend(["", "def generatedRank : GeneratedModule → Nat"])
-    for module in module_names:
+    for module in sorted(module_names):
         lines.append(f"  | GeneratedModule.{modules[module]} => {ranks[module]}")
     lines.extend([""])
 
@@ -425,7 +425,7 @@ def generate(facts, policy, accepted_review_sources=()):
             "def generatedScopeOf : GeneratedModule → GeneratedScope",
         ]
     )
-    for module in module_names:
+    for module in sorted(module_names):
         lines.append(
             f"  | GeneratedModule.{modules[module]} => GeneratedScope.{scopes[assigned_modules[module]]}"
         )
@@ -434,7 +434,7 @@ def generate(facts, policy, accepted_review_sources=()):
             "def generatedExpectedScopeOf : GeneratedModule → GeneratedScope",
         ]
     )
-    for module in module_names:
+    for module in sorted(module_names):
         lines.append(
             f"  | GeneratedModule.{modules[module]} => GeneratedScope.{scopes[expected_modules[module]]}"
         )

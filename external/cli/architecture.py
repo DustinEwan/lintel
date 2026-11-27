@@ -76,6 +76,7 @@ def main():
     check.add_argument("--format", choices=("text", "json"), default="text")
     check.add_argument("--locked", dest="locked", action="store_true", default=True)
     check.add_argument("--no-lock", dest="locked", action="store_false")
+    check.add_argument("--no-cache", action="store_true", help="rebuild all facts")
 
     init = commands.add_parser("init", help="scaffold a governed project")
     init.add_argument("--preset", default="clean")
@@ -102,6 +103,7 @@ def main():
     generate.add_argument(
         "--no-check", action="store_true", help="skip lake build and generated-instance check"
     )
+    generate.add_argument("--no-cache", action="store_true", help="rebuild facts and recheck Lean")
     generate.add_argument(
         "--baseline",
         default="architecture.baseline.json",
@@ -110,6 +112,7 @@ def main():
 
     args = parser.parse_args()
     runtime = ArchitectureRuntime(args.root)
+    runtime.use_cache = not getattr(args, "no_cache", False)
 
     if args.command == "check":
         return _check(args, runtime)
@@ -145,8 +148,11 @@ def main():
         lean_generator.write_instance(facts, policy, output, accepted)
         print(f"Generated Lean instance at {args.out}.")
         if not args.no_check:
+            key = runtime.lean_check_key(output)
             runtime.run(["lake", "build"], cwd=runtime.tool_root)
-            runtime.run(["lake", "env", "lean", output], cwd=runtime.tool_root)
+            if not runtime.lean_check_is_cached(key):
+                runtime.run(["lake", "env", "lean", output], cwd=runtime.tool_root)
+                runtime.mark_lean_check(key)
             print("Checked generated Lean instance.")
         return 0
     if args.command == "update-lock":

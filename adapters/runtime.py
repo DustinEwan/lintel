@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tempfile
 
-from adapters import architecture_config, contract_facts, contract_lock
+from adapters import architecture_config, contract_facts, contract_lock, incremental_cache
 from architecture_core import presets, rules
 from architecture_core.checker import check, check_semantic_review
 from architecture_core.model import (
@@ -133,6 +133,7 @@ class ArchitectureRuntime:
     def __init__(self, root=DEFAULT_ROOT):
         self.root = os.path.abspath(root)
         self.tool_root = DEFAULT_ROOT
+        self.use_cache = True
         self.entrypoints_root = os.path.join(self.root, DEFAULT_ENTRYPOINTS_ROOT)
 
     def resolve(self, path):
@@ -181,6 +182,14 @@ class ArchitectureRuntime:
         )
 
     def collect_self_facts(self, config, overrides):
+        key = None
+        if self.use_cache:
+            key = incremental_cache.fact_key(
+                self.root, config, overrides, self.tool_root
+            )
+            cached = incremental_cache.load_facts(self.root, key)
+            if cached is not None:
+                return facts_from_dict(cached)
         core_root = self.resolve(overrides.core_root or config.core_root)
         adapters_root = self.resolve(
             overrides.adapters_root or config.adapters_root
@@ -280,9 +289,10 @@ class ArchitectureRuntime:
             contract_data = contract_facts.discover(
                 self.root, config.policy, entrypoints_root
             )
-            return facts_from_dict(
-                merge_facts(paths, contract_data, config.excluded_scopes)
-            )
+            data = merge_facts(paths, contract_data, config.excluded_scopes)
+            if self.use_cache:
+                incremental_cache.save_facts(self.root, key, data)
+            return facts_from_dict(data)
 
     def write_facts(self, path, facts):
         parent = os.path.dirname(os.path.abspath(path))
@@ -388,6 +398,15 @@ class ArchitectureRuntime:
             )
         return tuple(dict.fromkeys(sources))
 
+
+    def lean_check_key(self, output):
+        return incremental_cache.lean_key(self.root, output, self.tool_root)
+
+    def lean_check_is_cached(self, key):
+        return self.use_cache and incremental_cache.lean_ok(self.root, key)
+
+    def mark_lean_check(self, key):
+        incremental_cache.mark_lean_ok(self.root, key)
     def list_rules(self):
         return tuple(rules.catalog_data())
 

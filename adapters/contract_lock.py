@@ -11,7 +11,7 @@ from architecture_core.rules import catalog_data, rule_spec
 
 CHECKER_ARTIFACTS = (
     "Architecture.lean",
-    "architecture_core/model.py",
+    "lean-toolchain",
     "architecture_core/checker.py",
     "architecture_core/rules.py",
     "architecture_core/ratchet.py",
@@ -23,6 +23,7 @@ CHECKER_ARTIFACTS = (
     "adapters/architecture_config.py",
     "adapters/contract_facts.py",
     "adapters/contract_lock.py",
+    "adapters/incremental_cache.py",
     "adapters/extract_common.py",
     "adapters/go_extractor.py",
     "adapters/python_extractor.py",
