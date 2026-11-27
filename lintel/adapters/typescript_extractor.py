@@ -9,13 +9,44 @@ from lintel.adapters.extract_common import iter_files, rel, write_json
 
 SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
 IMPORT_FROM_RE = re.compile(
-    r'\b(?:import|export)\s+(?:[^;\n]*?\sfrom\s*)?["\']([^"\']+)["\']'
+    r'\b(?:import|export)\s+(?:[^;]*?\sfrom\s*)?["\']([^"\']+)["\']'
 )
 DYNAMIC_RE = re.compile(r'\bimport\s*\(\s*["\']([^"\']+)["\'](?:\s*,[^)]*)?\)')
 REQUIRE_RE = re.compile(r'\brequire\s*\(\s*["\']([^"\']+)["\']\s*\)')
 DYNAMIC_CALL_RE = re.compile(r"\b(?:import|require)\s*\(([^)]*)\)")
 IMPORT_START_RE = re.compile(r"^\s*import\b")
 EXPORT_FROM_RE = re.compile(r"^\s*export\b")
+
+
+def iter_statements(text):
+    """Yield (start_line, source) with multi-line import/export statements joined."""
+    buffer = []
+    start_line = 0
+    depth = 0
+    for line_number, raw_line in enumerate(text.splitlines(), 1):
+        line = raw_line.split("//", 1)[0]
+        if not buffer:
+            if not line.strip():
+                continue
+            if IMPORT_START_RE.match(line) or EXPORT_FROM_RE.match(line):
+                buffer.append(line)
+                start_line = line_number
+                depth = line.count("{") - line.count("}")
+                if ";" in line or depth <= 0:
+                    yield start_line, "\n".join(buffer)
+                    buffer = []
+                    depth = 0
+                continue
+            yield line_number, line
+            continue
+        buffer.append(line)
+        depth += line.count("{") - line.count("}")
+        if ";" in line or depth <= 0:
+            yield start_line, "\n".join(buffer)
+            buffer = []
+            depth = 0
+    if buffer:
+        yield start_line, "\n".join(buffer)
 
 def strip_extension(path):
     if path.endswith(".d.ts"):
@@ -56,8 +87,7 @@ def extract(root):
         current = module_by_file[path]
         source = rel(path, root)
         seen = set()
-        for line_number, line in enumerate(text.splitlines(), 1):
-            code = line.split("//", 1)[0]
+        for line_number, code in iter_statements(text):
             specs = []
             for pattern in (IMPORT_FROM_RE, DYNAMIC_RE, REQUIRE_RE):
                 specs.extend(match.group(1) for match in pattern.finditer(code))

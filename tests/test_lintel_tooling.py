@@ -12,6 +12,7 @@ sys.path.insert(0, ROOT)
 from lintel.adapters import config as config_adapter, contract_facts, contract_lock, incremental_cache, lean_generator
 import lintel.adapters.runtime as runtime_module
 from lintel.adapters import agent_files
+from lintel.adapters import typescript_extractor
 from lintel.core import hooks, review
 from lintel.adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from lintel.adapters.runtime import LintelRuntime
@@ -826,6 +827,41 @@ class AgentInstructionTests(unittest.TestCase):
                 self.assertIn("lintel check", handle.read())
             with open(os.path.join(directory, "HARNESS_SETUP.md"), encoding="utf-8") as handle:
                 self.assertIn("lintel hook", handle.read())
+
+
+class TypeScriptExtractorTests(unittest.TestCase):
+    def test_multiline_imports_and_exports_produce_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source_dir = os.path.join(directory, "src")
+            os.makedirs(source_dir)
+            with open(os.path.join(source_dir, "a.ts"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    'import {\n  first,\n  second as alias\n} from "./b";\n'
+                    'export {\n  alias\n} from "./b";\n'
+                )
+            with open(os.path.join(source_dir, "b.ts"), "w", encoding="utf-8") as handle:
+                handle.write("export const first = 1;\n")
+
+            data = typescript_extractor.extract(directory)
+            dependencies = {
+                (item["from"], item["to"], item["line"])
+                for item in data["dependencies"]
+            }
+            self.assertIn(("src/a", "src/b", 1), dependencies)
+            self.assertIn(("src/a", "src/b", 5), dependencies)
+            self.assertEqual(data["unparsed"], [])
+
+    def test_non_literal_dynamic_dependency_stays_unparsed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "a.ts"), "w", encoding="utf-8") as handle:
+                handle.write('const name = "b";\nimport(name);\n')
+            data = typescript_extractor.extract(directory)
+            self.assertEqual(len(data["unparsed"]), 1)
+            self.assertEqual(data["unparsed"][0]["line"], 2)
+            self.assertEqual(
+                data["unparsed"][0]["reason"],
+                "dynamic dependency with non-literal specifier",
+            )
 
 if __name__ == "__main__":
     unittest.main()
