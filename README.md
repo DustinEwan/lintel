@@ -176,15 +176,15 @@ lake build
 - `modules`: `{name, path, package?}` entries.
 - `dependencies`: `{from, to, kind, source, line}` entries.
 
-`adapters/check_architecture.py` reads facts plus a policy with `regions`, `allowed`, and `forbidden` fields. It reports:
+`adapters/check_architecture.py` reads facts plus architecture configuration from `architecture.toml` (`--config`) or a JSON policy file (`--policy`). It reports:
 
 - `core_outward`: a core module depends on a non-core module.
 - `forbidden_import`: a core module imports a forbidden target.
 - `edge_not_allowed`: a source region has no permission for the target region.
 - `cycle`: a module dependency cycle.
 
-Policy patterns use shell-style `fnmatch`; the first matching region wins. `default_region` catches external packages. Region entries with `"core": true` correspond to `Core` in the Lean model. `tests/fixtures/policy.json` is an example covering Rust, Go, and TypeScript module names.
-The self-policy makes the layers explicit: `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, `infrastructure`, and `external` are outer regions. Ports are contracts and boundary data owned by core, CLI entrypoints drive adapters, infrastructure is file/JSON/OS plumbing, and `external` is unowned packages and systems.
+Layer patterns use shell-style `fnmatch`; layers are sorted by `priority` and the first matching layer wins. `default_layer` catches dependencies with no matching layer. Layers with `core = true` correspond to `Core` in the Lean model. `tests/fixtures/policy.json` remains an example JSON policy covering Rust, Go, and TypeScript module names.
+The self-configuration makes the layers explicit: `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, `infrastructure`, and `external` are outer layers. Ports are contracts and boundary data owned by core, CLI entrypoints drive adapters, infrastructure is file/JSON/OS plumbing, and `external` is unowned packages and systems.
 
 Usage:
 
@@ -197,6 +197,7 @@ python3 adapters/extract_python.py --root /path/to/project --out py-facts.json
 go run ./adapters/go-extractor/main.go --root /path/to/project --out go-native-facts.json
 npm install
 node adapters/extract_typescript_native.mjs --root /path/to/project --out ts-native-facts.json
+python3 adapters/check_architecture.py rust-facts.json --config architecture.toml
 python3 adapters/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
 python3 adapters/check_self.py
 ```
@@ -206,19 +207,26 @@ Core logic lives in `architecture_core/`: pure fact types, policy matching, and 
 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
 
-Dogfooding: `python3 adapters/check_self.py` extracts `architecture_core/` and `adapters/` as separate import roots, merges facts from all extractors, and checks them against `adapters/self_policy.json`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
-Dogfood configuration lives in `architecture.toml` at the repo root:
+Dogfooding: `python3 adapters/check_self.py` extracts `architecture_core/` and `adapters/` as separate import roots, merges facts from all extractors, and checks them against the `[layers]` tables in `architecture.toml`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
+Dogfood configuration and policy live in `architecture.toml` at the repo root:
 
 ```toml
 version = 1
+default_layer = "external"
 
 [paths]
 core_root = "architecture_core"
 adapters_root = "adapters"
-policy = "adapters/self_policy.json"
+
+[layers.core]
+priority = 20
+core = true
+patterns = ["architecture_core.*"]
+allowed = ["ports", "core", "platform"]
+forbidden = ["extract_*", "check_self"]
 ```
 
-CLI flags override these values. To keep adapters in `drivers/`, change `adapters_root` and `policy`, then run `python3 drivers/check_self.py` with no arguments. Region names and patterns in the policy are independent of folder names, so modules under `drivers/` can still belong to the `adapters` region.
+CLI flags override the path values. Layer patterns and allowed edges are independent of folder names, so moving adapters to `drivers/` only requires changing `adapters_root`; the `adapters` layer still matches those modules.
 
 Limits:
 

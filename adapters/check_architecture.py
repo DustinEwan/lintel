@@ -7,9 +7,12 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+ADAPTERS_ROOT = os.path.dirname(os.path.abspath(__file__))
+for path in (ROOT, ADAPTERS_ROOT):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
+import architecture_config
 from architecture_core.checker import check
 from architecture_core.model import facts_from_dict, policy_from_dict, violation_to_dict
 
@@ -19,15 +22,26 @@ def load_json(path):
         return json.load(f)
 
 
+def load_policy(args):
+    if args.config:
+        data = architecture_config.policy_from_config(
+            architecture_config.load_config(args.config)
+        )
+        return policy_from_dict(data)
+    return policy_from_dict(load_json(args.policy))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("facts", help="JSON facts file from an extractor")
-    parser.add_argument("--policy", required=True, help="JSON architecture policy")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--config", help="TOML architecture configuration")
+    source.add_argument("--policy", help="JSON architecture policy")
     parser.add_argument("--json", action="store_true", help="emit JSON violations")
     args = parser.parse_args()
 
     facts = facts_from_dict(load_json(args.facts))
-    policy = policy_from_dict(load_json(args.policy))
+    policy = load_policy(args)
     violations = [violation_to_dict(item) for item in check(facts, policy)]
 
     if args.json:

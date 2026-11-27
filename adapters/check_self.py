@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
-import tomllib
+import architecture_config
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_CORE_ROOT = "architecture_core"
@@ -44,15 +44,7 @@ def load_config(path, required):
         if required:
             raise SystemExit(f"config not found: {full}")
         return {}
-    with open(full, "rb") as handle:
-        try:
-            data = tomllib.load(handle)
-        except tomllib.TOMLDecodeError as error:
-            raise SystemExit(f"invalid config {full}: {error}")
-    config = data.get("paths", {})
-    if not isinstance(config, dict):
-        raise SystemExit(f"config {full}: paths must be a table")
-    return config
+    return architecture_config.load_config(full)
 
 
 def merge_facts(paths):
@@ -111,21 +103,19 @@ def main():
     parser.add_argument("--config", help="TOML config path")
     parser.add_argument("--core-root", help="core source root")
     parser.add_argument("--adapters-root", help="adapter source root")
-    parser.add_argument("--policy", help="architecture policy JSON")
     parser.add_argument("--out", help="write merged facts to this path")
     args = parser.parse_args()
 
     config = load_config(args.config or DEFAULT_CONFIG, args.config is not None)
+    path_config = config.get("paths", {})
+    if not isinstance(path_config, dict):
+        raise SystemExit("config: paths must be a table")
+    config_path = args.config or DEFAULT_CONFIG
     core_root = resolve_path(
-        args.core_root or config.get("core_root", DEFAULT_CORE_ROOT)
+        args.core_root or path_config.get("core_root", DEFAULT_CORE_ROOT)
     )
     adapters_root = resolve_path(
-        args.adapters_root or config.get("adapters_root", DEFAULT_ADAPTERS_ROOT)
-    )
-    policy = resolve_path(
-        args.policy
-        or config.get("policy")
-        or os.path.join(adapters_root, "self_policy.json")
+        args.adapters_root or path_config.get("adapters_root", DEFAULT_ADAPTERS_ROOT)
     )
     core_prefix = relative_prefix(core_root)
 
@@ -233,8 +223,8 @@ def main():
                 sys.executable,
                 os.path.join(adapters_root, "check_architecture.py"),
                 facts_path,
-                "--policy",
-                policy,
+                "--config",
+                config_path,
                 "--json",
             ],
             cwd=ROOT,

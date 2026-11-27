@@ -1,6 +1,124 @@
 version = 1
+default_layer = "external"
 
 [paths]
 core_root = "architecture_core"
 adapters_root = "adapters"
-policy = "adapters/self_policy.json"
+
+[layers.ports]
+priority = 10
+core = true
+patterns = [
+  "architecture_core.model*",
+  "architecture_core.ports*",
+  "Architecture.Port*",
+  "Architecture.CapabilityPort*",
+  "Architecture.TypedCapabilityPort*",
+  "Architecture.BoundaryDataLanguage*"
+]
+allowed = ["ports", "core", "platform"]
+forbidden = [
+  "check_architecture",
+  "check_self",
+  "extract_*",
+  "extract_typescript_native",
+  "rust_extractor",
+  "architecture-extractors/go-extractor",
+  "extract_common"
+]
+
+[layers.core]
+priority = 20
+core = true
+patterns = ["Architecture", "architecture_core.*"]
+allowed = ["ports", "core", "platform"]
+forbidden = [
+  "check_architecture",
+  "check_self",
+  "extract_*",
+  "extract_typescript_native",
+  "rust_extractor",
+  "architecture-extractors/go-extractor",
+  "extract_common"
+]
+
+[layers.platform]
+priority = 30
+core = true
+patterns = [
+  "argparse",
+  "ast",
+  "bytes",
+  "collections",
+  "contextlib",
+  "core",
+  "csv",
+  "dataclasses*",
+  "datetime",
+  "encoding/json",
+  "enum",
+  "flag",
+  "fnmatch*",
+  "fmt",
+  "glob",
+  "go/parser",
+  "go/token",
+  "hashlib",
+  "io",
+  "itertools",
+  "json",
+  "logging",
+  "math",
+  "node:child_process",
+  "node:fs",
+  "node:path",
+  "os",
+  "os/exec",
+  "path/filepath",
+  "pathlib",
+  "posixpath",
+  "random",
+  "re",
+  "shutil",
+  "sort",
+  "std",
+  "strconv",
+  "strings",
+  "subprocess",
+  "sys",
+  "tempfile",
+  "time",
+  "tomllib",
+  "traceback",
+  "typing*"
+]
+allowed = ["platform"]
+
+[layers.entrypoints]
+priority = 40
+core = false
+patterns = ["check_architecture", "check_self"]
+allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
+
+[layers.infrastructure]
+priority = 50
+core = false
+patterns = ["extract_common", "architecture_config"]
+allowed = ["platform", "infrastructure", "external"]
+
+[layers.adapters]
+priority = 60
+core = false
+patterns = [
+  "extract_*",
+  "extract_typescript_native",
+  "rust_extractor",
+  "architecture-extractors/go-extractor"
+]
+allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
+
+[layers.external]
+priority = 999
+core = false
+patterns = []
+allowed = ["external"]
