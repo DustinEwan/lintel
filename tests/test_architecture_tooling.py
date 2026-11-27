@@ -234,6 +234,18 @@ class WrapperOperationTests(unittest.TestCase):
         )
         self.assertIn("fat_entrypoint", rules(check_wrapper_operations(facts, policy)))
 
+    def test_analyzer_detects_run_with_cwd(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "external/cli/sample.py",
+            "runtime.run([\"lake\", \"build\"], cwd=runtime.tool_root)\n",
+        )
+        self.assertTrue(
+            any(
+                item.operation == "subprocess" and item.target == "lake"
+                for item in analysis.wrapper_operations
+            )
+        )
+
 
 class RatchetTests(unittest.TestCase):
     def test_new_violation_and_stale_entry(self):

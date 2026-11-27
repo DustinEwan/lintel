@@ -136,8 +136,8 @@ def main():
         lean_generator.write_instance(facts, policy, output)
         print(f"Generated Lean instance at {args.out}.")
         if not args.no_check:
-            runtime.run_in_tool_root(["lake", "build"])
-            runtime.run_in_tool_root(["lake", "env", "lean", output])
+            runtime.run(["lake", "build"], cwd=runtime.tool_root)
+            runtime.run(["lake", "env", "lean", output], cwd=runtime.tool_root)
             print("Checked generated Lean instance.")
         return 0
     if args.command == "update-lock":

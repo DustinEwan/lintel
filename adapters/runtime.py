@@ -136,17 +136,9 @@ class ArchitectureRuntime:
     def resolve(self, path):
         return path if os.path.isabs(path) else os.path.join(self.root, path)
 
-    def run(self, command):
+    def run(self, command, cwd=None):
         result = subprocess.run(
-            command, cwd=self.root, capture_output=True, text=True
-        )
-        if result.returncode != 0:
-            raise SystemExit(result.stderr.strip() or result.stdout.strip())
-        return result
-
-    def run_in_tool_root(self, command):
-        result = subprocess.run(
-            command, cwd=self.tool_root, capture_output=True, text=True
+            command, cwd=cwd or self.root, capture_output=True, text=True
         )
         if result.returncode != 0:
             raise SystemExit(result.stderr.strip() or result.stdout.strip())
