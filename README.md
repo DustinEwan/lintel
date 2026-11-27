@@ -205,8 +205,8 @@ Limits:
 - Static source scanning only: no reflection, macro expansion, generated code, or runtime dependency injection.
 - Rust `use` items are resolved to the nearest known local module; `pub use`, `pub(crate) use`, `pub(super) use`, `pub(in path) use`, and `extern crate` are included. Unrecognized visibility forms are reported as unparsed, as are `include!`, `#[path]`, and `macro_rules!`.
 - Go imports come from source files, not `go list`; `vendor/` is skipped. Build-tagged files are reported as unparsed.
-- The Python TypeScript scanner handles single-line static imports/exports, `require()`, and `import()`; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.
-- `tools/extract_typescript_native.mjs` parses TypeScript ASTs, honors `tsconfig.json`, resolves relative imports, and covers multi-line imports, type-only imports, re-exports, `import type`, and non-literal dynamic dependencies. Parse errors and unresolved relative specifiers are reported as unparsed.
+- The Python TypeScript scanner handles single-line static imports/exports, `require()`, and `import()` including import attributes; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.
+- `tools/extract_typescript_native.mjs` parses TypeScript ASTs, honors `tsconfig.json`, resolves relative imports, and covers multi-line imports, type-only imports, re-exports, `import type`, dynamic imports with import attributes, and non-literal dynamic dependencies. Parse errors, unresolved relative specifiers, and unsupported extra dynamic arguments are reported as unparsed.
 - Rust and Go remain dependency-free source scanners; `cargo metadata` plus a Rust AST and `go list -json` would be more precise but require toolchain dependencies in CI.
 - The checker is a decidable approximation of the formal predicates, not a Lean proof that a concrete codebase complies.
 

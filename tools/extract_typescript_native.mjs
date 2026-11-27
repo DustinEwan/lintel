@@ -130,6 +130,22 @@ function lineAt(sourceFile, node) {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
+function isImportAttributesArgument(node) {
+  if (!ts.isObjectLiteralExpression(node)) {
+    return false;
+  }
+  return node.properties.some((property) => {
+    if (
+      !ts.isPropertyAssignment(property) &&
+      !ts.isShorthandPropertyAssignment(property)
+    ) {
+      return false;
+    }
+    const name = property.name;
+    return (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) && name.text === "with";
+  });
+}
+
 function extract(root) {
   const unparsed = [];
   const project = loadProject(root, unparsed);
@@ -234,15 +250,27 @@ function extract(root) {
             reason: "non-literal import type specifier",
           });
         }
-      } else if (ts.isCallExpression(node) && node.arguments.length === 1) {
+      } else if (ts.isCallExpression(node) && node.arguments.length >= 1) {
+        const isImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
         const isDynamic =
-          node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          isImport ||
           (ts.isIdentifier(node.expression) && node.expression.text === "require");
         if (isDynamic) {
           const argument = node.arguments[0];
           if (ts.isStringLiteralLike(argument)) {
-            const kind = node.expression.kind === ts.SyntaxKind.ImportKeyword ? "import" : "require";
+            const kind = isImport ? "import" : "require";
             record(sourceFile, relativeSource, argument, argument.text, kind);
+            const supportedExtraArgs =
+              node.arguments.length === 2 &&
+              isImport &&
+              isImportAttributesArgument(node.arguments[1]);
+            if (node.arguments.length > 1 && !supportedExtraArgs) {
+              unparsed.push({
+                source: relativeSource,
+                line: lineAt(sourceFile, node),
+                reason: "unsupported extra dynamic dependency arguments",
+              });
+            }
           } else {
             unparsed.push({
               source: relativeSource,

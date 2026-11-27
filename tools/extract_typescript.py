@@ -12,7 +12,7 @@ SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts")
 IMPORT_FROM_RE = re.compile(
     r'\b(?:import|export)\s+(?:[^;\n]*?\sfrom\s*)?["\']([^"\']+)["\']'
 )
-DYNAMIC_RE = re.compile(r'\bimport\s*\(\s*["\']([^"\']+)["\']\s*\)')
+DYNAMIC_RE = re.compile(r'\bimport\s*\(\s*["\']([^"\']+)["\'](?:\s*,[^)]*)?\)')
 REQUIRE_RE = re.compile(r'\brequire\s*\(\s*["\']([^"\']+)["\']\s*\)')
 DYNAMIC_CALL_RE = re.compile(r"\b(?:import|require)\s*\(([^)]*)\)")
 IMPORT_START_RE = re.compile(r"^\s*import\b")
