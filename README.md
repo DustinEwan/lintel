@@ -1,24 +1,5 @@
 # Lintel — Software Architecture Pattern Research Notes
 
-## Install and quick start
-
-Lintel needs Python 3.11+. Install it into a virtual environment, then check a project:
-
-```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install .
-lintel --root /path/to/project check
-```
-
-For a new governed project, scaffold the config, baseline, and harness instructions:
-
-```sh
-lintel init --preset clean --output /path/to/new-project
-```
-
-Wire the generated hooks into your harness using `HARNESS_SETUP.md`. The installed CLI uses dependency-free Python analyzers by default; native extractors are source-checkout tools that need their own toolchains.
-
 ## Scope
 
 These notes compare **Clean Architecture**, **Hexagonal Architecture (Ports and Adapters)**, and **Onion Architecture**, then survey adjacent patterns with the same design philosophy. Primary sources are used where available.
@@ -230,19 +211,34 @@ Layer patterns use shell-style `fnmatch`; layers are sorted by `priority` and th
 `lintel.toml` separates three concepts: `[layers.*]` defines inward dependency rings, `[scopes.*]` identifies test/example/fixture/generated/vendor contexts, and `[[executables]]` declares CLI surfaces with their owning layer. `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core.
 `[analysis] source_suffixes` is required and declares which file suffixes are governed source. A declared suffix without an analyzer, or a known source suffix that is not declared, is an `unparsed_source` error. Exception rules are formalized in `ESCAPE_HATCHES.md`; semantic ambiguity scenarios are listed in `SEMANTIC_SCENARIOS.md`.
 
-Usage:
+### Install and usage
+
+No published distribution exists yet; install from this source checkout. Lintel requires Python 3.11+.
 
 ```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install .
 lintel --root /path/to/project check
 lintel --root /path/to/project check --format json
 lintel list-rules
 lintel explain adapter_cli_concern
 lintel --root /path/to/project update-lock
 lintel --root /path/to/project accept-baseline
-lintel init --preset clean --output /path/to/new-project
 lintel --root /path/to/project generate-lean --out /path/to/LintelFacts.lean [--no-check]
+```
 
-# Source checkout only: extractor surfaces backed by language toolchains
+`lintel init` rewrites config and baseline files, so use it only for new projects:
+
+```sh
+lintel init --preset clean --output /path/to/new-project
+```
+
+Wire the generated hooks into your harness using `HARNESS_SETUP.md`. The installed CLI uses dependency-free Python analyzers by default.
+
+Source checkout only: extractor surfaces backed by language toolchains.
+
+```sh
 python3 lintel/cli/extract_rust.py --root /path/to/project --out rust-facts.json
 python3 lintel/cli/extract_rust_native.py --root /path/to/project --out rust-native-facts.json
 python3 lintel/cli/extract_go.py --root /path/to/project --out go-facts.json
