@@ -18,7 +18,7 @@ These limits remain true, but Lintel fails closed or provides a reviewed path in
 | Unrecognized Rust visibility forms, `include!`, `#[path]`, `macro_rules!` | Python scanner reports them explicitly | `unparsed_source` |
 | Rust workspace roots | Native extractor refuses to attribute all members to one package | `unparsed_source` |
 | Build-tagged Go files | Python scanner reports constrained files explicitly | `unparsed_source` |
-| Multi-line TypeScript `from` clauses | Python scanner now joins multi-line import/export clauses before scanning; native extractor also handles them (PR #4) | Non-literal dynamic dependencies remain unparsed |
+| Multi-line TypeScript `from` clauses | Python scanner now joins multi-line import/export clauses before scanning (PR #4); native extractor also handles them | Non-literal dynamic dependencies remain unparsed |
 | Toolchain-backed extraction unavailable | Python scanners are dependency-free and are the installed default | Native extractors remain source-checkout tools requiring Rust, Go, or Node/TypeScript |
 | Reflection, generated code, runtime dependency injection | Detected cases become `semantic_review` with fingerprints and reasons | Review decision is required; no automatic pass |
 
