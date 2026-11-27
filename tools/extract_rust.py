@@ -25,8 +25,8 @@ def crate_name(root):
     if os.path.exists(cargo):
         with open(cargo, "rb") as f:
             data = tomllib.load(f)
-        return data.get("package", {}).get("name", os.path.basename(root))
-    return os.path.basename(root)
+        return data.get("package", {}).get("name", os.path.basename(root)).replace("-", "_")
+    return os.path.basename(root).replace("-", "_")
 
 
 def module_name(path, root, crate):
