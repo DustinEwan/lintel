@@ -22,6 +22,14 @@ These limits remain true, but Lintel fails closed or provides a reviewed path in
 | Multi-line TypeScript `from` clauses | Python scanner now joins multi-line import/export clauses before scanning (PR #4); native extractor also handles them | Non-literal dynamic dependencies remain unparsed |
 | Toolchain-backed extraction unavailable | Python scanners are dependency-free and are the installed default | Native extractors remain source-checkout tools requiring Rust, Go, or Node/TypeScript |
 | Reflection, generated code, runtime dependency injection | Detected cases become `semantic_review` with fingerprints and reasons; the decision-model checker can resolve bounded cases | Low-confidence or failed model calls remain pending |
+| Aliased stdlib boundary access | Python analyzer canonicalizes import aliases before concern matching | Unresolvable aliases remain undetected |
+| Native tokens in comments/strings | Native analyzers mask comments and strings before token matching | Regex literals and unusual quoting remain heuristic |
+| Declarative CLI idioms | Rust `#[derive(...Parser...)]` and typer/click-gated `.command()` decorators are flagged as `argv_parse` | Unenumerated framework idioms remain undetected |
+
+The remaining scenarios in `SEMANTIC_SCENARIOS.md` need call-graph,
+library-metadata, dependency-injection, transitive-dependency, or combined-diff
+analysis. They are not yet flagged automatically; unresolved cases still fail
+closed through `unparsed_source` or remain documentation-only.
 
 ## 2. Intentional formal-model trust boundaries
 

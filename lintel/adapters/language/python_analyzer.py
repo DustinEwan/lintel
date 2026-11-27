@@ -30,15 +30,39 @@ def _main_guard(tree):
     return 0
 
 
+def _canonical_attribute(node, aliases):
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    return ".".join((aliases.get(node.id, node.id), *reversed(parts)))
+
+
 def _concerns(tree):
     found = set()
+    aliases = {}
+    cli_frameworks = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                root_name = alias.name.split(".", 1)[0]
-                if root_name in ENTRYPOINT_ONLY_IMPORTS:
+                root = alias.name.split(".", 1)[0]
+                aliases[alias.asname or root] = root
+                if root in {"typer", "click"}:
+                    cli_frameworks.add(root)
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".", 1)[0]
+            if root in {"typer", "click"}:
+                cli_frameworks.add(root)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".", 1)[0]
+                if root in ENTRYPOINT_ONLY_IMPORTS:
                     found.add(("argv_parse", "entrypoint_only", node.lineno))
-                elif root_name in MECHANISM_IMPORTS:
+                elif root in MECHANISM_IMPORTS:
                     found.add(("logging", "mechanism", node.lineno))
             continue
         if isinstance(node, ast.ImportFrom):
@@ -55,8 +79,18 @@ def _concerns(tree):
                 elif module in ENTRYPOINT_ONLY_IMPORTS:
                     found.add(("argv_parse", "entrypoint_only", node.lineno))
             continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for decorator in node.decorator_list:
+                expression = ast.unparse(decorator)
+                explicit_cli = expression.startswith(("click.command", "typer.command"))
+                framework_command = bool(cli_frameworks) and (
+                    expression in {"command", "command()"}
+                    or expression.endswith((".command", ".command()"))
+                )
+                if explicit_cli or framework_command:
+                    found.add(("argv_parse", "entrypoint_only", node.lineno))
         if isinstance(node, ast.Attribute):
-            expression = ast.unparse(node)
+            expression = _canonical_attribute(node, aliases) or ast.unparse(node)
             if expression == "sys.argv":
                 found.add(("argv", "entrypoint_only", node.lineno))
             elif expression == "os.environ":

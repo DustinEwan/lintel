@@ -485,7 +485,7 @@ def check_wrapper_operations(facts, policy):
     return tuple(violations)
 
 
-def check(facts, policy):
+def check(facts, policy, decisions=()):
     result = []
     result.extend(check_edges(facts, policy))
     result.extend(find_cycles(facts))
@@ -493,7 +493,7 @@ def check(facts, policy):
     result.extend(check_executables(facts, policy))
     result.extend(check_scopes(facts, policy))
     result.extend(check_boundary_concerns(facts, policy))
-    result.extend(check_semantic_review(facts, policy))
+    result.extend(check_semantic_review(facts, policy, decisions))
     result.extend(check_use_cases(facts, policy))
     result.extend(check_wrapper_operations(facts, policy))
     return tuple(result)

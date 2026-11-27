@@ -19,7 +19,6 @@ from lintel.core.model import (
     PathOverrides,
     SelfCheckRequest,
     violation_to_dict,
-    facts_with_decisions,
     merge_decisions,
 )
 
@@ -109,9 +108,10 @@ def _semantic_check(args, runtime):
     if not args.no_record:
         runtime.record_model_decisions(decisions, findings)
     merged = merge_decisions(facts.decisions, decisions)
-    checked = facts_with_decisions(facts, merged)
     live = runtime.live_decision_fingerprints(findings, merged)
-    violations = runtime.apply_baseline(runtime.check(checked, config.policy), live)
+    violations = runtime.apply_baseline(
+        runtime.check(facts, config.policy, merged), live
+    )
     return _emit(violations, args.format)
 
 

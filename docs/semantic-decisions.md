@@ -108,6 +108,9 @@ allowlist is hardcoded.
 high-confidence decisions. `--no-record` evaluates without mutating the
 baseline. Provider failures exit nonzero and leave the baseline unchanged.
 
+The aggregate checker receives decisions explicitly. Ordinary `lintel check`
+passes none, so deterministic checks stay independent of recorded decisions.
+
 The API key is read from the environment variable named by
 `semantic_decision.api_key_env`; no key is stored in config, facts, or lock.
 

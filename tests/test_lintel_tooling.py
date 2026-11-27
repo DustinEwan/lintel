@@ -210,6 +210,16 @@ class BoundaryConcernTests(unittest.TestCase):
         )
         self.assertEqual(check_boundary_concerns(facts, policy), ())
 
+    def test_aliased_stdlib_access_is_detected(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "adapters/aliased.py",
+            "import sys as s\nimport os as operating\n"
+            "args = s.argv[1:]\nhome = operating.environ['HOME']\n",
+        )
+        concerns = {(item.concern, item.category) for item in analysis.concerns}
+        self.assertIn(("argv", "entrypoint_only"), concerns)
+        self.assertIn(("env", "mechanism"), concerns)
+
     def test_entrypoint_and_build_artifact_concerns_are_allowed(self):
         policy = real_policy()
         facts = FactSet(
@@ -244,6 +254,52 @@ class BoundaryConcernTests(unittest.TestCase):
         found = {item.concern for item in analysis.concerns}
         self.assertIn("argv", found)
         self.assertIn("env", found)
+
+
+    def test_native_analyzer_ignores_tokens_in_comments_and_strings(self):
+        go = analyzer_for_suffix(".go").analyze(
+            "adapters/sample.go",
+            'package main\n'
+            '// fmt.Print in a comment\n'
+            'var note = "fmt.Print in a string"\n'
+            'func main() { fmt.Print("real") }\n',
+        )
+        self.assertEqual([item.concern for item in go.concerns], ["terminal_io"])
+        self.assertEqual([item.line for item in go.concerns], [4])
+        rust = analyzer_for_suffix(".rs").analyze(
+            "adapters/sample.rs",
+            '/* println! in a nested /* block */ comment */\n'
+            'let note = "println! in a string";\n'
+            'fn main() { println!("real"); }\n',
+        )
+        self.assertEqual([item.concern for item in rust.concerns], ["terminal_io"])
+        self.assertEqual([item.line for item in rust.concerns], [3])
+
+        lifetime = analyzer_for_suffix(".rs").analyze(
+            "adapters/lifetime.rs", "fn f<'a>() { println!(\"x\") }\n"
+        )
+        self.assertEqual([item.concern for item in lifetime.concerns], ["terminal_io"])
+        self.assertEqual([item.line for item in lifetime.concerns], [1])
+
+    def test_declarative_cli_forms_are_detected(self):
+        rust = analyzer_for_suffix(".rs").analyze(
+            "adapters/args.rs", "#[derive(Debug, Parser)]\nstruct Args {}\n"
+        )
+        self.assertIn("argv_parse", {item.concern for item in rust.concerns})
+        rust_unrelated = analyzer_for_suffix(".rs").analyze(
+            "adapters/config.rs", "#[derive(Debug)]\nstruct Config {}\n"
+        )
+        self.assertEqual(rust_unrelated.concerns, ())
+
+        python = PythonSourceAnalyzer().analyze(
+            "adapters/cli.py",
+            "import typer\napp = typer.Typer()\n@app.command()\ndef run():\n    pass\n",
+        )
+        self.assertIn("argv_parse", {item.concern for item in python.concerns})
+        python_unrelated = PythonSourceAnalyzer().analyze(
+            "adapters/web.py", "@app.command()\ndef run():\n    pass\n"
+        )
+        self.assertEqual(python_unrelated.concerns, ())
 
     def test_native_analyzers_are_language_specific(self):
         go = analyzer_for_suffix(".go")
@@ -952,6 +1008,10 @@ class DecisionModelTests(unittest.TestCase):
         decision = SemanticDecision(key, "compliant", "test", 0.99, "test/model")
         decided = facts_with_decisions(facts, (decision,))
         self.assertEqual(check_semantic_review(decided, policy, (decision,)), ())
+        self.assertNotIn(
+            "semantic_review",
+            {item.rule for item in check(facts, policy, (decision,))},
+        )
 
     def test_missing_confidence_defaults_to_human_level(self):
         facts = facts_from_dict(

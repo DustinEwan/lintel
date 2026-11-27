@@ -329,8 +329,8 @@ class LintelRuntime:
             return policy_from_dict(config_adapter.policy_from_config(config))
         return policy_from_dict(load_json(self.resolve(policy_path)))
 
-    def check(self, facts, policy):
-        return tuple(check(facts, policy))
+    def check(self, facts, policy, decisions=()):
+        return tuple(check(facts, policy, decisions))
 
     def validate_config(self, path):
         full = self.resolve(path or DEFAULT_CONFIG)
