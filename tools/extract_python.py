@@ -161,6 +161,8 @@ def extract(root):
                 for alias in node.names:
                     record(resolve_dotted(alias.name, modules, local_top), node.lineno, "import")
             elif isinstance(node, ast.ImportFrom):
+                if node.level == 0 and node.module == "__future__":
+                    continue
                 names = [alias.name for alias in node.names]
                 for target in resolve_from(
                     node.module,
