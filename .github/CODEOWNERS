@@ -6,4 +6,5 @@
 /HARNESS_SETUP.md @architecture-owners
 /ESCAPE_HATCHES.md @architecture-owners
 /SEMANTIC_SCENARIOS.md @architecture-owners
+/.omp/hooks/post/lintel.js @architecture-owners
 /.github/workflows/ci.yml @architecture-owners

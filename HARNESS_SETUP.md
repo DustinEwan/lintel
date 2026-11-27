@@ -21,5 +21,7 @@ hook command from an extension event handler.
 Pi: call `lintel hook session-start` on `session_start` and
 `lintel hook stop` on `session_shutdown`.
 
+OMP: this repo ships [`.omp/hooks/post/lintel.js`](.omp/hooks/post/lintel.js). Native discovery loads it from `.omp/hooks/post/*.js` after restarting `omp`. It runs `lintel hook post-edit` after `edit`/`write` and `lintel hook stop` when an agent turn settles, surfacing findings in tool context and the status line.
+
 Generic harnesses: run the hook command after edits and before completion; treat
 a nonzero exit or `block: true` as a failed check.
