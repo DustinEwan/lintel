@@ -1,3 +1,3 @@
-module architecture-extractors/go-extractor
+module lintel/go-extractor
 
 go 1.22

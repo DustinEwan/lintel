@@ -96,13 +96,12 @@ forbidden = [
   "lintel.cli.*",
   "check_facts",
   "check_self",
-  "adapters.*_extractor",
-  "adapters.extract_*",
+  "lintel.adapters.*_extractor",
+  "lintel.adapters.extract_*",
+  "lintel.adapters.extract_common",
   "extract_*",
   "rust_extractor",
-  "architecture-extractors/go-extractor",
-  "extract_common",
-  "lintel.adapters.runtime"
+  "lintel/go-extractor"
 ]
 
 [layers.core]
@@ -114,13 +113,12 @@ forbidden = [
   "lintel.cli.*",
   "check_facts",
   "check_self",
-  "adapters.*_extractor",
-  "adapters.extract_*",
+  "lintel.adapters.*_extractor",
+  "lintel.adapters.extract_*",
+  "lintel.adapters.extract_common",
   "extract_*",
   "rust_extractor",
-  "architecture-extractors/go-extractor",
-  "extract_common",
-  "lintel.adapters.runtime"
+  "lintel/go-extractor"
 ]
 
 [layers.platform]
@@ -214,7 +212,7 @@ patterns = [
   "extract_*",
   "extract_typescript_native",
   "rust_extractor",
-  "architecture-extractors/go-extractor"
+  "lintel/go-extractor"
 ]
 allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
 

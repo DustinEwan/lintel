@@ -23,9 +23,11 @@ def fingerprint(item):
     data = dict(item)
     data["location"] = normalize_location(data.get("location", ""))
     keys = ("rule", "from", "to", "location", "source", "module", "target")
-    stable = {key: data[key] for key in keys if key in data}
+    if data.get("rule") == "semantic_review":
+        keys += ("line", "reason")
     import hashlib
 
+    stable = {key: data[key] for key in keys if key in data}
     return hashlib.sha256(canonical_bytes(stable)).hexdigest()
 
 

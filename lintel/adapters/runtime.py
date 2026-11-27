@@ -392,7 +392,7 @@ class LintelRuntime:
         sources = [
             source
             for item in entries
-            for source in (item.get("source") or item.get("location"),)
+            for source in (item.get("source"),)
             if source
         ]
         fingerprints = {
@@ -541,8 +541,10 @@ class LintelRuntime:
         with open(baseline_path, "w", encoding="utf-8") as handle:
             json.dump({"version": 1, "violations": []}, handle, indent=2)
         for name, content in agent_files.FILES.items():
-            with open(os.path.join(root, name), "w", encoding="utf-8") as handle:
-                handle.write(content)
+            path = os.path.join(root, name)
+            if not os.path.isfile(path):
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(content)
         contract_lock.write_lock(
             root, config_path, checker_root=self.tool_root
         )

@@ -1,16 +1,12 @@
 """Harness-neutral instruction files written by `lintel init`."""
 
-AGENTS_MD = """# Lintel architecture rules
+AGENTS_MD = """# Lintel
 
-- Keep source dependencies pointing inward: entrypoints -> adapters -> core.
-- `core` owns facts, policy, rules, ports, and use cases. It must not own argv,
-  environment access, filesystem access, subprocesses, or JSON I/O.
-- Language-specific source syntax belongs in an analyzer registered by suffix.
-- Run `lintel --root . check` after each edit and before declaring work complete.
-- New violations fail. Baseline entries cover debt only; config errors, contract
-  drift, unparsed source, and baseline errors cannot be accepted away.
-- `lintel --root . review` records semantic judgments by fingerprint with a reason.
-- Use `lintel --root . hook <event>` for editor and harness integration.
+Lintel governs architecture boundaries in this project.
+
+- Read `SKILL.md` before changing governed code.
+- Run `lintel --root . hook <event>` for session, edit, stop, and review events;
+  treat `block: true` as a failed check.
 """
 
 SKILL_MD = """---
@@ -30,6 +26,16 @@ Use this procedure when architecture boundaries may have changed.
 4. Re-run `lintel --root . check`. A clean result is required before finishing.
 5. When the contract changes intentionally, run `lintel --root . update-lock` and
    review the resulting diff.
+
+## Rules
+
+- Keep source dependencies pointing inward: entrypoints -> adapters -> core.
+- `core` owns facts, policy, rules, ports, and use cases. It must not own argv,
+  environment access, filesystem access, subprocesses, or JSON I/O.
+- Language-specific source syntax belongs in an analyzer registered by suffix.
+- New violations fail. Baseline entries cover debt only; config errors, contract
+  drift, unparsed source, and baseline errors cannot be accepted away.
+- Every semantic decision requires a reason and a stable finding fingerprint.
 """
 
 HARNESS_SETUP_MD = """# Lintel harness setup

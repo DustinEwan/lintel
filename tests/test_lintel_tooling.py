@@ -361,6 +361,17 @@ class ScaffoldTests(unittest.TestCase):
                 ignored, ["node_modules/", "lintel.cache.json"]
             )
 
+    def test_scaffold_preserves_existing_agent_instructions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            instructions = os.path.join(directory, "AGENTS.md")
+            with open(instructions, "w", encoding="utf-8") as handle:
+                handle.write("custom harness instructions\n")
+            runtime = LintelRuntime(directory)
+            runtime.scaffold("clean", directory)
+            runtime.scaffold("clean", directory)
+            with open(instructions, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "custom harness instructions\n")
+
 
 
 
@@ -541,7 +552,7 @@ sys.stdout.write(lean_generator.generate(facts, policy))
             path = os.path.join(tmp, "lintel.baseline.json")
             with open(path, encoding="utf-8") as handle:
                 data = json.load(handle)
-            self.assertEqual(data["violations"][0].get("location"), "")
+            self.assertEqual(data["violations"][0].get("location"), "adapters/impl.py:1")
             self.assertEqual(
                 runtime.accepted_review_sources(path, facts, policy),
                 ("adapters/impl.py",),
@@ -716,6 +727,31 @@ class HookProtocolTests(unittest.TestCase):
         )
         self.assertEqual(hooks.build("session-start", (violation,))["block"], False)
 
+    def test_semantic_review_fingerprints_are_per_finding(self):
+        first = Violation(
+            "semantic_review",
+            "dynamic access",
+            {
+                "source": "adapters/example.py",
+                "line": 1,
+                "reason": "dynamic access",
+                "location": "adapters/example.py:1",
+            },
+        )
+        second = Violation(
+            "semantic_review",
+            "dynamic access",
+            {
+                "source": "adapters/example.py",
+                "line": 2,
+                "reason": "dynamic access",
+                "location": "adapters/example.py:2",
+            },
+        )
+        self.assertNotEqual(
+            violation_fingerprint(first), violation_fingerprint(second)
+        )
+
     def test_session_start_hook_command_is_valid(self):
         with tempfile.TemporaryDirectory() as directory:
             output = subprocess.check_output(
@@ -785,6 +821,8 @@ class AgentInstructionTests(unittest.TestCase):
                 with open(os.path.join(directory, name), encoding="utf-8") as handle:
                     self.assertEqual(handle.read(), content)
             with open(os.path.join(directory, "AGENTS.md"), encoding="utf-8") as handle:
+                self.assertIn("lintel --root . hook", handle.read())
+            with open(os.path.join(directory, "SKILL.md"), encoding="utf-8") as handle:
                 self.assertIn("lintel --root . check", handle.read())
             with open(os.path.join(directory, "HARNESS_SETUP.md"), encoding="utf-8") as handle:
                 self.assertIn("lintel --root . hook", handle.read())

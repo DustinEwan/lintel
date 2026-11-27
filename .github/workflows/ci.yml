@@ -35,6 +35,7 @@ jobs:
           auto-config: false
           build: false
           use-mathlib-cache: false
+          working-directory: lintel
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -54,6 +55,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: lintel/package-lock.json
 
       - name: Install extractor dependencies
         run: npm ci --prefix lintel

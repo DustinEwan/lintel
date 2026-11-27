@@ -172,6 +172,7 @@ def check_semantic_review(facts, policy):
             module=item.module,
             source=item.source,
             line=item.line,
+            location=f"{item.source}:{item.line}",
             reason=item.reason,
         )
         for item in facts.reviews
