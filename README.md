@@ -10,8 +10,10 @@ Clean, Hexagonal, Onion, and related architectures are variants of one idea: kee
 flowchart LR
     E["Entrypoints: argv, env, exit"] --> A["Adapters: I/O, toolchains, frameworks"]
     A --> C["Core: facts, policy, use cases"]
-    C -. ports and contracts .-> A
+    C -. runtime call via port .-> A
 ```
+
+Solid arrows are source dependencies; dashed arrows are runtime calls.
 
 That discipline is easy to state and hard to keep, especially in agentic codebases where many edits are generated quickly and conventions are learned from examples. Lintel turns the shared rule into machine-checkable architecture facts, a decidable policy, a formal Lean model, and a review workflow for cases that cannot be decided statically. It separates new violations from existing debt and requires explicit, fingerprinted decisions for semantic exceptions.
 
