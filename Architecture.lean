@@ -412,6 +412,15 @@ structure ScopeInventory (A : Architecture) (σ : Type v) where
   assigned : Set A.Module
   conforms : ∀ m : A.Module, assigned m → scopeOf m = expectedOf m
 
+/-- Scope assignments and conventions over all scoped paths, not only modules. -/
+structure PathScopeInventory (σ : Type v) where
+  Path : Type u
+  scopeOf : Path → σ
+  expectedOf : Path → σ
+  ambiguous : Set Path
+  unambiguous : ∀ p : Path, ¬ ambiguous p
+  conforms : ∀ p : Path, scopeOf p = expectedOf p
+
 /-- Boundary concerns observed in source modules. -/
 structure BoundaryConcernInventory (A : Architecture) where
   argv : Set A.Module

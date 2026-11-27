@@ -140,6 +140,15 @@ def generate(facts, policy, accepted_review_sources=()):
     scope_names.update(scope for _, scope in scope_assignments.values())
     scope_names.update(scope_expected.values())
     scopes = _constructor_map(scope_names, "s")
+    path_index = _constructor_map(scope_assignments, "p")
+    path_priorities = {}
+    path_ambiguous = set()
+    for item in facts.scopes:
+        by_priority = path_priorities.setdefault(item.path, {})
+        by_priority.setdefault(item.priority, set()).add(item.scope)
+    for path, by_priority in path_priorities.items():
+        if any(len(names) > 1 for names in by_priority.values()):
+            path_ambiguous.add(path)
 
     assigned_modules = {}
     expected_modules = {}
@@ -206,8 +215,11 @@ def generate(facts, policy, accepted_review_sources=()):
         kind = {
             "import": "importOp",
             "subprocess": "subprocess",
+            "policy_construction": "policyConstruction",
             "policyConstruction": "policyConstruction",
+            "source_walk": "sourceWalk",
             "sourceWalk": "sourceWalk",
+            "parse_source": "parseSource",
             "parseSource": "parseSource",
         }.get(item.operation)
         if kind:
@@ -216,10 +228,11 @@ def generate(facts, policy, accepted_review_sources=()):
             subprocess_targets.setdefault(item.module, set()).add(item.target)
     declared_command_modules = {
         module
-        for module in module_names
-        if all(
-            match_any(target, policy.wrapper_allowed_commands)
-            for target in subprocess_targets.get(module, set())
+        for module, targets in subprocess_targets.items()
+        if targets
+        and all(
+            match_any(target.split("/", 1)[-1], policy.wrapper_allowed_commands)
+            for target in targets
             if target != "unknown"
         )
     }
@@ -268,6 +281,14 @@ def generate(facts, policy, accepted_review_sources=()):
         [
             "  deriving DecidableEq, Repr",
             "",
+            "inductive GeneratedPath where",
+        ]
+    )
+    lines.extend(f"  | {ctor}" for ctor in path_index.values())
+    lines.extend(
+        [
+            "  deriving DecidableEq, Repr",
+            "",
             "def generatedModuleLabel : GeneratedModule → String",
         ]
     )
@@ -276,6 +297,19 @@ def generate(facts, policy, accepted_review_sources=()):
     lines.extend(["", "def generatedRegionLabel : GeneratedRegion → String"])
     for name, ctor in region_index.items():
         lines.append(f"  | GeneratedRegion.{ctor} => {json.dumps(name)}")
+    lines.extend(["", "def generatedPathLabel : GeneratedPath → String"])
+    for name, ctor in path_index.items():
+        lines.append(f"  | GeneratedPath.{ctor} => {json.dumps(name)}")
+    lines.extend(["", "def generatedPathScopeOf : GeneratedPath → GeneratedScope"])
+    for name, ctor in path_index.items():
+        scope = scope_assignments[name][1]
+        lines.append(f"  | GeneratedPath.{ctor} => GeneratedScope.{scopes[scope]}")
+    lines.extend(
+        ["", "def generatedPathExpectedScopeOf : GeneratedPath → GeneratedScope"]
+    )
+    for name, ctor in path_index.items():
+        scope = scope_expected.get(name, scope_assignments[name][1])
+        lines.append(f"  | GeneratedPath.{ctor} => GeneratedScope.{scopes[scope]}")
     lines.extend(["", "def generatedRegion : GeneratedModule → GeneratedRegion"])
     for module in module_names:
         lines.append(
@@ -405,6 +439,12 @@ def generate(facts, policy, accepted_review_sources=()):
             f"  | GeneratedModule.{modules[module]} => GeneratedScope.{scopes[expected_modules[module]]}"
         )
     lines.extend([""])
+    _emit_predicate(
+        lines,
+        "generatedPathAmbiguous",
+        (("p", "GeneratedPath"),),
+        {(path_index[path],) for path in path_ambiguous},
+    )
 
     for kind, ctor in (
         ("argv", "generatedConcernArgv"),
@@ -476,7 +516,7 @@ def generate(facts, policy, accepted_review_sources=()):
         "generatedWrapperDeclared",
         (("a", "GeneratedModule"),),
         {(modules[module],) for module in declared_command_modules},
-        exhaustive=True,
+
     )
     _emit_predicate(
         lines,
@@ -671,6 +711,19 @@ def generate(facts, policy, accepted_review_sources=()):
             "    intro m h",
             "    revert h",
             "    cases m <;> decide",
+            "",
+            "def generatedPathScopes : PathScopeInventory GeneratedScope where",
+            "  Path := GeneratedPath",
+            "  scopeOf := generatedPathScopeOf",
+            "  expectedOf := generatedPathExpectedScopeOf",
+            "  ambiguous := generatedPathAmbiguous",
+            "  unambiguous := by",
+            "    intro p h",
+            "    revert h",
+            "    cases p <;> decide",
+            "  conforms := by",
+            "    intro p",
+            "    cases p <;> decide",
             "",
             "def generatedBoundaryConcerns : BoundaryConcernInventory generatedArchitecture where",
             "  argv := generatedConcernArgv",

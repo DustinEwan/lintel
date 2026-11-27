@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import sys
@@ -44,12 +45,29 @@ def real_policy():
     config = architecture_config.load_config(CONFIG_PATH)
     return policy_from_dict(architecture_config.policy_from_config(config))
 
+
+def load_cli_module():
+    spec = importlib.util.spec_from_file_location(
+        "architecture_cli_under_test",
+        os.path.join(ROOT, "external", "cli", "architecture.py"),
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 def module_ctor(source, name):
     suffix = f'=> "{name}"'
     for line in source.splitlines():
         if line.startswith("  | GeneratedModule.m") and line.endswith(suffix):
             return line.split("=>", 1)[0].strip().removeprefix("| ").removeprefix("GeneratedModule.").strip()
     raise AssertionError(f"missing generated module for {name}")
+
+def declared_rows(source):
+    lines = source.splitlines()
+    start = lines.index("def generatedWrapperDeclaredBool : GeneratedModule → Bool")
+    end = lines.index(
+        "def generatedWrapperDeclared (a : GeneratedModule) : Prop := generatedWrapperDeclaredBool a = true"
+    )
+    return "\n".join(lines[start:end])
 
 
 def generated_rank(source, ctor):
@@ -361,6 +379,7 @@ class LeanGeneratorTests(unittest.TestCase):
             "def generatedUseCaseBoundary : UseCaseBoundary generatedArchitecture where",
             "def generatedEntrypoints : EntrypointInventory generatedArchitecture GeneratedRegion where",
             "def generatedScopes : ScopeInventory generatedArchitecture GeneratedScope where",
+            "def generatedPathScopes : PathScopeInventory GeneratedScope where",
             "def generatedBoundaryConcerns : BoundaryConcernInventory generatedArchitecture where",
             "def generatedWrappers : WrapperInventory generatedArchitecture where",
             "def generatedReviews : ReviewInventory generatedArchitecture where",
@@ -372,6 +391,54 @@ class LeanGeneratorTests(unittest.TestCase):
             "theorem generated_inverted_call_avoids_adapter",
         ):
             self.assertIn(declaration, source)
+
+    def test_wrapper_declarations_cover_only_subprocess_callers(self):
+        policy = real_policy()
+        facts = FactSet(
+            modules=(
+                Module("external.cli.caller", "external/cli/caller.py"),
+                Module("adapters.other", "adapters/other.py"),
+            ),
+            wrapper_operations=(
+                WrapperOperation(
+                    "external.cli.caller",
+                    "subprocess",
+                    "tools/cargo",
+                    "external/cli/caller.py",
+                    1,
+                ),
+            ),
+        )
+        source = lean_generator.generate(facts, policy)
+        caller = module_ctor(source, "external.cli.caller")
+        other = module_ctor(source, "adapters.other")
+        rows = declared_rows(source)
+        self.assertIn(f"| GeneratedModule.{caller} => true", rows)
+        self.assertNotIn(f"| GeneratedModule.{other} => true", rows)
+
+    def test_baseline_semantic_review_source_is_used(self):
+        module = load_cli_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "baseline.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "version": 1,
+                        "violations": [
+                            {
+                                "rule": "semantic_review",
+                                "message": "review",
+                                "source": "adapters/impl.py",
+                                "line": 1,
+                            }
+                        ],
+                    },
+                    handle,
+                )
+            self.assertEqual(
+                module._accepted_review_sources(ArchitectureRuntime(ROOT), path),
+                ("adapters/impl.py",),
+            )
 
 
     def test_generated_rank_decreases_along_dependencies(self):

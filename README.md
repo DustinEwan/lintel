@@ -178,6 +178,8 @@ This verifies the **formal model**. The adapters in `adapters/` bridge real sour
 
 `generate-lean` instantiates every executable-fact category from the checker in the generated module: core and policy architecture, acyclicity, nested embedding, ports/adapters/inverted calls, multi-core layered regions, use-case purity, declared entrypoints, scope assignments, boundary concerns, wrapper operations, and semantic review state. `MultiCoreLayeredArchitecture` is used because the current policy has several core regions. The current policy also permits same-region edges and multiple core regions, so no strict layered instance is emitted. Typed capability structures and extraction/runtime semantics remain abstract or outside the generated instance.
 
+Trust boundaries: generated Lean proves the deterministic fact/policy checks only. Extraction completeness, runtime behavior, semantic judgment, typed capability choices, strict layering, and runtime/nested subsystem embeddings are not claimed as Lean theorems. `generatedNestedArchitecture` is an identity-embedding sanity instance, not a claim about repository subsystems. Scope coverage includes all scoped paths, including documentation and configuration files, not only source modules.
+
 Toolchain: Lean 4.36.0, pinned in `lean-toolchain`.
 
 Requires `lake` on `PATH`. Verify with:

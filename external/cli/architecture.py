@@ -42,9 +42,11 @@ def _accepted_review_sources(runtime, path):
     with open(resolved, encoding="utf-8") as handle:
         data = json.load(handle)
     return tuple(
-        item["location"]
+        source
         for item in data.get("violations", ())
-        if item.get("rule") == "semantic_review" and item.get("location")
+        if item.get("rule") == "semantic_review"
+        for source in (item.get("source") or item.get("location"),)
+        if source
     )
 
 
