@@ -11,6 +11,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from lintel.adapters.runtime import LintelRuntime
+from lintel.adapters import decision_model
 
 from lintel.adapters import lean_generator
 from lintel.core.model import (
@@ -18,6 +19,8 @@ from lintel.core.model import (
     PathOverrides,
     SelfCheckRequest,
     violation_to_dict,
+    facts_with_decisions,
+    merge_decisions,
 )
 
 from lintel.core.use_cases.check_facts import run_check_facts
@@ -90,6 +93,28 @@ def _review(args, runtime):
     return 0
 
 
+def _semantic_check(args, runtime):
+    contract_violations = tuple(runtime.validate_config(args.config))
+    contract_violations += tuple(runtime.verify_lock(args.config, True))
+    if contract_violations:
+        return _emit(contract_violations, args.format)
+    config = runtime.load_self_config(args.config, True)
+    facts = runtime.collect_self_facts(config, PathOverrides())
+    findings = runtime.semantic_review_findings(facts, config.policy)
+    try:
+        decisions = runtime.decision_model_decisions(findings, config.policy)
+    except decision_model.DecisionModelError as error:
+        print(f"semantic-check failed: {error}", file=sys.stderr)
+        return 2
+    if not args.no_record:
+        runtime.record_model_decisions(decisions, findings)
+    merged = merge_decisions(facts.decisions, decisions)
+    checked = facts_with_decisions(facts, merged)
+    live = runtime.live_decision_fingerprints(findings, merged)
+    violations = runtime.apply_baseline(runtime.check(checked, config.policy), live)
+    return _emit(violations, args.format)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=os.getcwd(), help="governed project root")
@@ -132,6 +157,15 @@ def main():
     decision.add_argument("fingerprint")
     decision.add_argument("--decision", required=True, choices=review.DECISIONS)
     decision.add_argument("--reason", required=True)
+
+    semantic = commands.add_parser(
+        "semantic-check", help="resolve semantic reviews with a decision model"
+    )
+    semantic.add_argument("--config", default="lintel.toml")
+    semantic.add_argument("--format", choices=("text", "json"), default="text")
+    semantic.add_argument(
+        "--no-record", action="store_true", help="evaluate without changing the baseline"
+    )
 
     generate = commands.add_parser(
         "generate-lean", help="generate a finite Lean instance from facts"
@@ -178,6 +212,8 @@ def main():
         return _hook(args, runtime)
     if args.command == "review":
         return _review(args, runtime)
+    if args.command == "semantic-check":
+        return _semantic_check(args, runtime)
     if args.command == "generate-lean":
         policy = runtime.load_policy(args.config, None)
         if args.facts:

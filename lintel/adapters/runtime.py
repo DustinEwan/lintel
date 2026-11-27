@@ -14,6 +14,7 @@ from lintel.adapters import (
     agent_files,
     config as config_adapter,
     contract_facts,
+    decision_model,
     contract_lock,
     incremental_cache,
 )
@@ -57,6 +58,7 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
     dependencies = {}
     unparsed = {}
     reviews = {}
+    decisions = {}
 
     def keep(source):
         return source not in excluded
@@ -103,6 +105,10 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
             continue
         key = (item.get("module", ""), item["source"], item["line"], item["reason"])
         reviews[key] = item
+    for item in contract_data.get("decisions", []):
+        fingerprint = item.get("fingerprint")
+        if fingerprint:
+            decisions[fingerprint] = item
 
     return {
         "version": 1,
@@ -117,6 +123,9 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
         ),
         "reviews": sorted(
             reviews.values(), key=lambda item: (item["source"], item["line"], item["reason"])
+        ),
+        "decisions": sorted(
+            decisions.values(), key=lambda item: item.get("fingerprint", "")
         ),
         "entrypoints": sorted(
             contract_data.get("entrypoints", []), key=lambda item: item["path"]
@@ -299,6 +308,7 @@ class LintelRuntime:
                 self.root, config.policy, entrypoints_root
             )
             data = merge_facts(paths, contract_data, config.excluded_scopes)
+            data["decisions"] = self._baseline_decision_data()
             if self.use_cache:
                 incremental_cache.save_facts(self.root, key, data)
             return facts_from_dict(data)
@@ -335,13 +345,15 @@ class LintelRuntime:
             self.root, full, locked, checker_root=self.tool_root
         )
 
-    def apply_baseline(self, violations):
+    def apply_baseline(self, violations, live_fingerprints=()):
         path = contract_lock.baseline_path(self.root)
         if not os.path.isfile(path):
-            return compare_baseline(violations, ())
+            return compare_baseline(violations, (), live_fingerprints)
         with open(path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
-        return compare_baseline(violations, data.get("violations", []))
+        return compare_baseline(
+            violations, data.get("violations", []), live_fingerprints
+        )
 
     def update_lock(self, path):
         contract_lock.write_lock(
@@ -407,48 +419,84 @@ class LintelRuntime:
             )
         return tuple(dict.fromkeys(sources))
 
+    def _baseline_data(self):
+        path = contract_lock.baseline_path(self.root)
+        if not os.path.isfile(path):
+            return {"version": 1}
+        return load_json(path)
 
-    def record_review(self, fingerprint, decision, reason):
+    def _baseline_decision_data(self):
+        return list(self._baseline_data().get("decisions", ()))
+
+    def semantic_review_findings(self, facts, policy):
+        return check_semantic_review(facts, policy, ())
+
+    def live_decision_fingerprints(self, findings, decisions):
+        accepting = {
+            item.fingerprint for item in decisions if review.is_accepting(item.decision)
+        }
+        return frozenset(
+            key
+            for item in findings
+            for key in (violation_fingerprint(item),)
+            if key in accepting
+        )
+
+    def decision_model_decisions(self, findings, policy):
+        return decision_model.evaluate(findings, policy, self.root)
+
+    def record_model_decisions(self, decisions, findings=()):
+        fields = {
+            violation_fingerprint(item): item.fields for item in findings
+        }
+        records = []
+        for item in decisions:
+            record = asdict(item)
+            source = fields.get(item.fingerprint, {})
+            record.setdefault("source", source.get("source", ""))
+            record.setdefault("location", source.get("location", ""))
+            record.setdefault("rule", source.get("rule", "semantic_review"))
+            records.append(record)
+        return self._write_decision_records(records)
+
+    def _write_decision_records(self, records):
         config_path = self.resolve(DEFAULT_CONFIG)
-        config = self.load_self_config(DEFAULT_CONFIG, True)
-        facts = self.collect_self_facts(config, PathOverrides())
-        matches = [
-            item
-            for item in check_semantic_review(facts, config.policy)
-            if violation_fingerprint(item) == fingerprint
-        ]
-        if not matches:
-            raise SystemExit(f"unknown semantic-review fingerprint: {fingerprint}")
-        item = matches[0]
         baseline = contract_lock.baseline_path(self.root)
         data = load_json(baseline) if os.path.isfile(baseline) else {"version": 1}
         entries = list(data.get("violations", ()))
-        decisions = [
-            record
-            for record in data.get("decisions", ())
-            if record.get("fingerprint") != fingerprint
-        ]
-        record = {
-            "fingerprint": fingerprint,
-            "decision": decision,
-            "reason": reason,
-            "rule": item.rule,
-            "source": item.fields.get("source", ""),
-            "location": item.fields.get("location", ""),
+        merged = {
+            item["fingerprint"]: item
+            for item in data.get("decisions", ())
+            if item.get("fingerprint")
         }
-        decisions.append(record)
-        decisions.sort(key=lambda entry: entry["fingerprint"])
-        entries = [entry for entry in entries if entry.get("fingerprint") != fingerprint]
-        if review.is_accepting(decision):
-            entries.append(
-                {
-                    "fingerprint": fingerprint,
-                    "rule": item.rule,
-                    "source": record["source"],
-                    "location": record["location"],
-                }
-            )
-            entries.sort(key=lambda entry: entry["fingerprint"])
+        for item in records:
+            item.setdefault("confidence", 1.0)
+            item.setdefault("model", "human")
+            item.setdefault("schema_version", "1")
+            if item.get("fingerprint"):
+                merged[item["fingerprint"]] = item
+        for item in merged.values():
+            item.setdefault("confidence", 1.0)
+            item.setdefault("model", "human")
+            item.setdefault("schema_version", "1")
+        decisions = sorted(merged.values(), key=lambda entry: entry["fingerprint"])
+        decision_fingerprints = set(merged)
+        entries = [
+            entry
+            for entry in entries
+            if entry.get("fingerprint") not in decision_fingerprints
+        ]
+        for record in decisions:
+            if review.is_accepting(record.get("decision", "")):
+                entries.append(
+                    {
+                        "fingerprint": record["fingerprint"],
+                        "rule": record.get("rule", "semantic_review"),
+                        "source": record.get("source", ""),
+                        "location": record.get("location", ""),
+                    }
+                )
+        entries.sort(key=lambda entry: entry.get("fingerprint", ""))
         with open(baseline, "w", encoding="utf-8") as handle:
             json.dump(
                 {"version": 1, "violations": entries, "decisions": decisions},
@@ -457,7 +505,30 @@ class LintelRuntime:
             )
             handle.write("\n")
         self.update_lock(config_path)
-        return record
+        return tuple(records)
+
+
+    def record_review(self, fingerprint, decision, reason):
+        config = self.load_self_config(DEFAULT_CONFIG, True)
+        facts = self.collect_self_facts(config, PathOverrides())
+        matches = [
+            item
+            for item in check_semantic_review(facts, config.policy, ())
+            if violation_fingerprint(item) == fingerprint
+        ]
+        if not matches:
+            raise SystemExit(f"unknown semantic-review fingerprint: {fingerprint}")
+        item = matches[0]
+        record = {
+            "fingerprint": fingerprint,
+            "decision": decision,
+            "reason": reason,
+            "rule": item.rule,
+            "source": item.fields.get("source", ""),
+            "location": item.fields.get("location", ""),
+        }
+        records = self._write_decision_records((record,))
+        return records[0]
 
     def lean_check_key(self, output):
         return incremental_cache.lean_key(self.root, output, self.tool_root)
@@ -493,6 +564,15 @@ class LintelRuntime:
             "",
             "[analysis]",
             'source_suffixes = [".py", ".go", ".rs", ".mjs", ".js", ".ts", ".tsx"]',
+            "",
+            "[semantic_decision]",
+            'model = "liquid/d1.2"',
+            'endpoint = "https://openrouter.ai/api/alpha/decisions"',
+            'api_key_env = "OPENROUTER_API_KEY"',
+            'answer_key = "decision"',
+            "min_confidence = 0.85",
+            "timeout = 20",
+            "max_findings = 64",
             "",
             "[scopes.external]",
             'patterns = ["*"]',

@@ -75,7 +75,7 @@ flowchart LR
 
 `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core. `tests/fixtures/policy.json` is an example JSON policy covering Rust, Go, and TypeScript module names.
 
-Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); semantic ambiguity scenarios are listed in [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md).
+Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); semantic ambiguity scenarios are listed in [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md), and the decision-model contract is in [docs/semantic-decisions.md](docs/semantic-decisions.md).
 
 ### Install and usage
 

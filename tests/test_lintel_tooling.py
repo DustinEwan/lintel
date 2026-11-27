@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from dataclasses import replace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -15,6 +16,7 @@ from lintel.adapters import agent_files
 from lintel.adapters import typescript_extractor
 from lintel.adapters import rust_extractor
 from lintel.adapters import go_extractor
+from lintel.adapters import decision_model
 from lintel.core import hooks, review
 from lintel.adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from lintel.adapters.runtime import LintelRuntime
@@ -38,6 +40,9 @@ from lintel.core.model import (
     ScopeAssignment,
     PathOverrides,
     SemanticReview,
+    SemanticDecision,
+    facts_with_decisions,
+    merge_decisions,
     Violation,
     WrapperOperation,
 )
@@ -129,6 +134,23 @@ class ConfigValidationTests(unittest.TestCase):
         config["boundary_concerns"]["mechanism"]["patterns"] = ["print"]
         violations = config_adapter.validate_config(config, ROOT)
         self.assertIn("config_unknown_key", rules(violations))
+
+    def test_decision_api_is_configurable(self):
+        config = config_adapter.load_config(CONFIG_PATH)
+        config["semantic_decision"]["model"] = "custom/vendor-model"
+        config["semantic_decision"]["api_key_env"] = "CUSTOM_KEY"
+        violations = config_adapter.validate_config(config, ROOT)
+        self.assertEqual(violations, ())
+        policy = policy_from_dict(config_adapter.policy_from_config(config))
+        self.assertEqual(policy.semantic_decision["model"], "custom/vendor-model")
+        self.assertEqual(policy.semantic_decision["api_key_env"], "CUSTOM_KEY")
+
+    def test_decision_api_bounds_are_validated(self):
+        config = config_adapter.load_config(CONFIG_PATH)
+        config["semantic_decision"]["min_confidence"] = 2
+        config["semantic_decision"]["timeout"] = 0
+        violations = config_adapter.validate_config(config, ROOT)
+        self.assertIn("config_invalid", rules(violations))
 
 
 class ExecutableRuleTests(unittest.TestCase):
@@ -291,6 +313,26 @@ class RatchetTests(unittest.TestCase):
         self.assertIn(
             "baseline_stale",
             rules(compare_baseline((), [{"fingerprint": key, "rule": "edge_not_allowed"}])),
+        )
+
+    def test_stale_only_when_accepted_finding_is_no_longer_live(self):
+        old = Violation(
+            "semantic_review",
+            "dynamic access",
+            {"location": "adapters/old.py:4", "source": "adapters/old.py", "line": 4, "reason": "dynamic"},
+        )
+        changed = Violation(
+            "semantic_review",
+            "dynamic access",
+            {"location": "adapters/new.py:9", "source": "adapters/new.py", "line": 9, "reason": "dynamic"},
+        )
+        old_key = violation_fingerprint(old)
+        self.assertNotEqual(old_key, violation_fingerprint(changed))
+        accepted = [{"fingerprint": old_key, "rule": "semantic_review"}]
+        self.assertEqual(compare_baseline((), accepted, frozenset({old_key})), ())
+        self.assertIn(
+            "baseline_stale",
+            rules(compare_baseline((), accepted, frozenset())),
         )
 
     def test_non_baselineable_violations_pass_through(self):
@@ -708,7 +750,7 @@ class EscapeHatchTests(unittest.TestCase):
             reviews=analysis.reviews,
             scopes=(ScopeAssignment("adapters/example.py", "example"),),
         )
-        self.assertEqual(check_semantic_review(excluded, policy), [])
+        self.assertEqual(check_semantic_review(excluded, policy), ())
         included = FactSet(reviews=analysis.reviews)
         self.assertTrue(
             any(item.rule == "semantic_review" for item in check_semantic_review(included, policy))
@@ -807,6 +849,214 @@ class ReviewDecisionTests(unittest.TestCase):
                 os.path.join(directory, "lintel.baseline.json"), facts, config.policy
             ))
 
+
+
+class DecisionModelTests(unittest.TestCase):
+    def _settings(self):
+        return dict(
+            real_policy().semantic_decision,
+            model="custom/vendor-model",
+            answer_key="review",
+            api_key_env="TEST_DECISION_KEY",
+            min_confidence=0.8,
+        )
+
+    def _policy(self):
+        return replace(real_policy(), semantic_decision=self._settings())
+
+    def _finding(self, policy):
+        item = SemanticReview(
+            "adapters/example.py",
+            "adapters/example.py",
+            3,
+            "dynamic access to os.environ",
+        )
+        return check_semantic_review(FactSet(reviews=(item,)), policy)[0]
+
+    def test_payload_uses_configured_model_and_question_prefix(self):
+        policy = self._policy()
+        finding = self._finding(policy)
+        bundle = decision_model.build_payload((finding,), policy)
+        question_id = f"review:{violation_fingerprint(finding)}"
+        self.assertEqual(bundle["payload"]["model"], "custom/vendor-model")
+        self.assertIn(question_id, bundle["payload"]["questions"])
+        self.assertEqual(
+            bundle["payload"]["questions"][question_id]["type"], "choice"
+        )
+
+    def test_evaluate_validates_typed_choice_and_audits_state(self):
+        policy = self._policy()
+        finding = self._finding(policy)
+        question_id = f"review:{violation_fingerprint(finding)}"
+
+        class Response:
+            def read(self, limit=-1):
+                payload = {
+                    "model": "custom/vendor-model-1",
+                    "answers": {
+                        question_id: {
+                            "type": "choice",
+                            "choice": "compliant",
+                            "confidence": 0.96,
+                        }
+                    },
+                }
+                return json.dumps(payload).encode("utf-8")
+
+            def close(self):
+                pass
+
+        with patch.dict(os.environ, {"TEST_DECISION_KEY": "secret"}):
+            decisions = decision_model.evaluate(
+                (finding,), policy, opener=lambda request, timeout=None: Response()
+            )
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0].decision, "compliant")
+        self.assertEqual(decisions[0].model, "custom/vendor-model-1")
+        self.assertTrue(decisions[0].evidence_hash)
+        self.assertTrue(decisions[0].state_hash)
+
+    def test_low_confidence_is_downgraded(self):
+        policy = self._policy()
+        finding = self._finding(policy)
+        question_id = f"review:{violation_fingerprint(finding)}"
+
+        class Response:
+            def read(self, limit=-1):
+                payload = {
+                    "answers": {
+                        question_id: {
+                            "type": "choice",
+                            "choice": "compliant",
+                            "confidence": 0.2,
+                        }
+                    }
+                }
+                return json.dumps(payload).encode("utf-8")
+
+            def close(self):
+                pass
+
+        with patch.dict(os.environ, {"TEST_DECISION_KEY": "secret"}):
+            decisions = decision_model.evaluate(
+                (finding,), policy, opener=lambda request, timeout=None: Response()
+            )
+        self.assertEqual(decisions[0].decision, "needs-human-review")
+
+    def test_checker_accepts_high_confidence_compliant_decision(self):
+        policy = self._policy()
+        item = SemanticReview("adapters/example.py", "adapters/example.py", 3, "dynamic")
+        facts = FactSet(reviews=(item,))
+        finding = check_semantic_review(facts, policy)[0]
+        key = violation_fingerprint(finding)
+        decision = SemanticDecision(key, "compliant", "test", 0.99, "test/model")
+        decided = facts_with_decisions(facts, (decision,))
+        self.assertEqual(check_semantic_review(decided, policy, (decision,)), ())
+
+    def test_missing_confidence_defaults_to_human_level(self):
+        facts = facts_from_dict(
+            {"decisions": [{"fingerprint": "abc", "decision": "compliant"}]}
+        )
+        self.assertEqual(facts.decisions[0].confidence, 1.0)
+
+    def test_probability_distribution_supplies_confidence(self):
+        policy = self._policy()
+        finding = self._finding(policy)
+        question_id = f"review:{violation_fingerprint(finding)}"
+
+        class Response:
+            def read(self, limit=-1):
+                payload = {
+                    "model": "alternate/model-1",
+                    "answers": {
+                        question_id: {
+                            "type": "choice",
+                            "choice": "violating",
+                            "probabilities": {"compliant": 0.07, "violating": 0.93},
+                        }
+                    },
+                }
+                return json.dumps(payload).encode("utf-8")
+
+            def close(self):
+                pass
+
+        with patch.dict(os.environ, {"TEST_DECISION_KEY": "secret"}):
+            decisions = decision_model.evaluate(
+                (finding,), policy, opener=lambda request, timeout=None: Response()
+            )
+        self.assertEqual(decisions[0].decision, "violating")
+        self.assertEqual(decisions[0].confidence, 0.93)
+
+    def test_missing_confidence_fails_closed(self):
+        policy = self._policy()
+        finding = self._finding(policy)
+        question_id = f"review:{violation_fingerprint(finding)}"
+
+        class Response:
+            def read(self, limit=-1):
+                payload = {
+                    "answers": {
+                        question_id: {"type": "choice", "choice": "compliant"}
+                    }
+                }
+                return json.dumps(payload).encode("utf-8")
+
+            def close(self):
+                pass
+
+        with patch.dict(os.environ, {"TEST_DECISION_KEY": "secret"}):
+            with self.assertRaises(decision_model.DecisionModelError):
+                decision_model.evaluate(
+                    (finding,), policy, opener=lambda request, timeout=None: Response()
+                )
+
+    def test_merge_decisions_keeps_unreviewed_findings(self):
+        existing = SemanticDecision("a", "compliant", "human", 1.0, "human")
+        incoming = (
+            SemanticDecision("b", "violating", "model", 0.9, "test/model"),
+            SemanticDecision("a", "needs-human-review", "model", 0.7, "test/model"),
+        )
+        merged = merge_decisions((existing,), incoming)
+        by_fingerprint = {item.fingerprint: item.decision for item in merged}
+        self.assertEqual(
+            by_fingerprint, {"a": "needs-human-review", "b": "violating"}
+        )
+
+    def test_record_model_decisions_persists_audit_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = LintelRuntime(directory)
+            runtime.scaffold("clean", directory)
+            path = os.path.join(directory, "adapters", "review_me.py")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("import os\nvalue = getattr(os, \"environ\")\n")
+            config = runtime.load_self_config("lintel.toml", True)
+            facts = runtime.collect_self_facts(config, PathOverrides())
+            findings = runtime.semantic_review_findings(facts, config.policy)
+            finding = findings[0]
+            key = violation_fingerprint(finding)
+            decision = SemanticDecision(
+                key,
+                "compliant",
+                "model choice=compliant confidence=0.9900",
+                0.99,
+                "test/model",
+                "1",
+                "evidence",
+                "state",
+            )
+            runtime.record_model_decisions((decision,), findings)
+            with open(
+                os.path.join(directory, "lintel.baseline.json"), encoding="utf-8"
+            ) as handle:
+                data = json.load(handle)
+            record = data["decisions"][0]
+            self.assertEqual(record["evidence_hash"], "evidence")
+            self.assertEqual(record["state_hash"], "state")
+            self.assertEqual(record["model"], "test/model")
+            self.assertEqual(
+                data["violations"][0]["fingerprint"], key
+            )
 
 class InstalledToolRootTests(unittest.TestCase):
     def test_tool_root_is_the_package_directory(self):

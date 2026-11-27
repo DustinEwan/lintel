@@ -13,7 +13,7 @@ Implementation status and deterministic extractor gaps live in [docs/limitations
 | Bootstrapping | `init` scaffold | N/A | scaffold config in version control | Implemented |
 | Known debt | accepted baseline | Yes | baseline diff + CODEOWNERS | Implemented |
 | Unsupported syntax/language | `unparsed_source` | No | analyzer implementation | Implemented via declared suffixes |
-| Semantic ambiguity | `semantic_review` | Yes | semantic judge or human review | Detectable flags implemented |
+| Semantic ambiguity | `semantic_review` | Yes | decision model or human review | Detectable flags and decision-model checker implemented |
 | Policy evolution | `update-lock` | N/A | config diff + CODEOWNERS | Implemented, intended use |
 
 ## 1. Bootstrapping
@@ -64,11 +64,12 @@ Some constructs are syntactically valid but need intent or runtime judgment:
 dynamic attribute lookup, dynamic module loading, and similar reflection.
 Detected cases produce `semantic_review` with the source location and reason.
 
-`semantic_review` is baselineable because the outcome of review is a human or
-judge decision, not an automatic pass. `lintel --root <dir> review <fingerprint>
---decision compliant|violating|needs-human-review --reason <reason>` records that decision.
-`compliant` accepts the finding and records its source for generated Lean; the
-other decisions leave it pending. Every decision requires a reason and relocks
+`semantic_review` is baselineable because the outcome of review is a model or
+human decision, not an automatic pass. `lintel --root <dir> review <fingerprint>
+--decision compliant|violating|needs-human-review --reason <reason>` records a human decision.
+`lintel semantic-check` records high-confidence typed model decisions with audit
+fields. `compliant` accepts the finding and records its source for generated Lean;
+the other decisions leave it pending. Every decision requires a reason and relocks
 the baseline. The deterministic checker does not guess.
 
 ## 5. Policy evolution

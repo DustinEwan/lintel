@@ -1,7 +1,9 @@
 from fnmatch import fnmatchcase
 from posixpath import splitext
 
+from . import review
 from .model import Region, Violation
+from .ratchet import violation_fingerprint
 from .rules import rule_spec
 
 
@@ -164,9 +166,16 @@ def _excluded_source(source, facts, policy):
     )
 
 
-def check_semantic_review(facts, policy):
-    return [
-        violation(
+def check_semantic_review(facts, policy, decisions=None):
+    result = []
+    selected = () if decisions is None else decisions
+    by_fingerprint = {item.fingerprint: item for item in selected}
+    threshold = float(policy.semantic_decision.get("min_confidence", 0.85))
+
+    for item in facts.reviews:
+        if _excluded_source(item.source, facts, policy):
+            continue
+        finding = violation(
             "semantic_review",
             "semantic review: " + item.reason + f" ({item.source}:{item.line})",
             module=item.module,
@@ -175,9 +184,36 @@ def check_semantic_review(facts, policy):
             location=f"{item.source}:{item.line}",
             reason=item.reason,
         )
-        for item in facts.reviews
-        if not _excluded_source(item.source, facts, policy)
-    ]
+        fingerprint = violation_fingerprint(finding)
+        decision = by_fingerprint.get(fingerprint)
+        if (
+            decision is None
+            or not review.is_decision(decision.decision)
+            or float(decision.confidence) < threshold
+        ):
+            result.append(finding)
+            continue
+        if decision.decision == "compliant":
+            continue
+        result.append(
+            violation(
+                "semantic_review",
+                f"semantic decision {decision.decision}: {decision.reason} "
+                f"({item.source}:{item.line})",
+                module=item.module,
+                source=item.source,
+                line=item.line,
+                location=f"{item.source}:{item.line}",
+                reason=item.reason,
+                decision=decision.decision,
+                decision_confidence=float(decision.confidence),
+                decision_model=decision.model,
+                decision_schema_version=decision.schema_version,
+                evidence_hash=decision.evidence_hash,
+                state_hash=decision.state_hash,
+            )
+        )
+    return tuple(result)
 
 
 def check_executables(facts, policy):

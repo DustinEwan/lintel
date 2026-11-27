@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -31,6 +31,18 @@ class SemanticReview:
     source: str
     line: int
     reason: str
+
+
+@dataclass(frozen=True)
+class SemanticDecision:
+    fingerprint: str
+    decision: str
+    reason: str
+    confidence: float = 1.0
+    model: str = ""
+    schema_version: str = "1"
+    evidence_hash: str = ""
+    state_hash: str = ""
 
 @dataclass(frozen=True)
 class Entrypoint:
@@ -99,6 +111,7 @@ class FactSet:
     scopes: tuple[ScopeAssignment, ...] = ()
     wrapper_operations: tuple[WrapperOperation, ...] = ()
     reviews: tuple[SemanticReview, ...] = ()
+    decisions: tuple[SemanticDecision, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -128,6 +141,7 @@ class Policy:
     wrapper_forbidden_imports: tuple[str, ...] = ()
     wrapper_allowed_commands: tuple[str, ...] = ()
     source_suffixes: tuple[str, ...] = ()
+    semantic_decision: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -206,6 +220,19 @@ def facts_to_dict(facts):
             }
             for item in facts.reviews
         ],
+        "decisions": [
+            {
+                "fingerprint": item.fingerprint,
+                "decision": item.decision,
+                "reason": item.reason,
+                "confidence": item.confidence,
+                "model": item.model,
+                "schema_version": item.schema_version,
+                "evidence_hash": item.evidence_hash,
+                "state_hash": item.state_hash,
+            }
+            for item in facts.decisions
+        ],
         "entrypoints": [
             {"module": item.module, "path": item.path, "kind": item.kind}
             for item in facts.entrypoints
@@ -276,6 +303,19 @@ def facts_from_dict(data):
             )
             for item in data.get("reviews", [])
         ),
+        decisions=tuple(
+            SemanticDecision(
+                item.get("fingerprint", ""),
+                item.get("decision", "needs-human-review"),
+                item.get("reason", "semantic decision"),
+                float(1.0 if item.get("confidence") is None else item["confidence"]),
+                item.get("model", ""),
+                item.get("schema_version", "1"),
+                item.get("evidence_hash", ""),
+                item.get("state_hash", ""),
+            )
+            for item in data.get("decisions", [])
+        ),
         entrypoints=tuple(
             Entrypoint(
                 item.get("module", ""),
@@ -315,6 +355,16 @@ def facts_from_dict(data):
             for item in data.get("wrapper_operations", [])
         ),
     )
+
+
+def facts_with_decisions(facts, decisions):
+    return replace(facts, decisions=tuple(decisions))
+
+
+def merge_decisions(existing, incoming):
+    merged = {item.fingerprint: item for item in existing}
+    merged.update({item.fingerprint: item for item in incoming})
+    return tuple(sorted(merged.values(), key=lambda item: item.fingerprint))
 
 
 def _artifacts(items, first="path", second="owner"):
@@ -376,6 +426,10 @@ def policy_from_dict(data):
         wrapper_forbidden_imports=tuple(data.get("wrapper_forbidden_imports", ())),
         wrapper_allowed_commands=tuple(data.get("wrapper_allowed_commands", ())),
         source_suffixes=tuple(data.get("source_suffixes", ())),
+        semantic_decision={
+            key: value
+            for key, value in data.get("semantic_decision", {}).items()
+        },
     )
 
 

@@ -37,7 +37,7 @@ def violation_fingerprint(violation):
     )
 
 
-def compare_baseline(violations, accepted):
+def compare_baseline(violations, accepted, live_fingerprints=()):
     accepted_map = {
         item.get("fingerprint", fingerprint(item)): item
         for item in accepted
@@ -69,7 +69,7 @@ def compare_baseline(violations, accepted):
         )
 
     for key, item in accepted_map.items():
-        if key in current_map:
+        if key in current_map or key in live_fingerprints:
             continue
         result.append(
             Violation(

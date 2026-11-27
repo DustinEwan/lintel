@@ -58,7 +58,9 @@ class ContractPort(Protocol):
     def verify_lock(self, path: str, locked: bool) -> tuple[Violation, ...]: ...
 
     def apply_baseline(
-        self, violations: tuple[Violation, ...]
+        self,
+        violations: tuple[Violation, ...],
+        live_fingerprints: frozenset[str] = frozenset(),
     ) -> tuple[Violation, ...]: ...
 
     def list_rules(self) -> tuple[dict[str, Any], ...]: ...

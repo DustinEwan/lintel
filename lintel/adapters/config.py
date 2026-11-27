@@ -21,6 +21,7 @@ TOP_LEVEL_KEYS = {
     "wrapper_rules",
     "use_cases",
     "analysis",
+    "semantic_decision",
 }
 
 PATH_KEYS = {"core_root", "adapters_root", "entrypoints_root"}
@@ -34,6 +35,25 @@ WRAPPER_KEYS = {"allowed_imports", "forbidden_imports", "allowed_commands"}
 USE_CASE_KEYS = {"allowed_imports"}
 
 ANALYSIS_KEYS = {"source_suffixes"}
+
+SEMANTIC_DECISION_KEYS = {
+    "model",
+    "endpoint",
+    "api_key_env",
+    "answer_key",
+    "min_confidence",
+    "timeout",
+    "max_findings",
+}
+SEMANTIC_DECISION_DEFAULTS = {
+    "model": "liquid/d1.2",
+    "endpoint": "https://openrouter.ai/api/alpha/decisions",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "answer_key": "decision",
+    "min_confidence": 0.85,
+    "timeout": 20,
+    "max_findings": 64,
+}
 
 
 def load_config(path):
@@ -306,7 +326,54 @@ def validate_config(config, root=None):
     _check_keys(wrapper_rules, WRAPPER_KEYS, "wrapper_rules", violations)
     use_cases = config.get("use_cases", {})
     _check_keys(use_cases, USE_CASE_KEYS, "use_cases", violations)
-
+    decision = config.get("semantic_decision", {})
+    _check_keys(decision, SEMANTIC_DECISION_KEYS, "semantic_decision", violations)
+    if not isinstance(decision, dict):
+        violations.append(
+            _make_violation(
+                "config_invalid", "semantic_decision must be a table", location="semantic_decision"
+            )
+        )
+        decision = {}
+    for key in ("model", "endpoint", "api_key_env", "answer_key"):
+        if key in decision and (
+            not isinstance(decision[key], str) or not decision[key].strip()
+        ):
+            violations.append(
+                _make_violation(
+                    "config_invalid",
+                    f"semantic_decision.{key} must be a non-empty string",
+                    location=f"semantic_decision.{key}",
+                )
+            )
+    confidence = decision.get("min_confidence")
+    if confidence is not None and (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0.0 <= float(confidence) <= 1.0
+    ):
+        violations.append(
+            _make_violation(
+                "config_invalid",
+                "semantic_decision.min_confidence must be between 0 and 1",
+                location="semantic_decision.min_confidence",
+            )
+        )
+    for key, upper in (("timeout", 300), ("max_findings", 128)):
+        value = decision.get(key)
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 1
+            or value > upper
+        ):
+            violations.append(
+                _make_violation(
+                    "config_invalid",
+                    f"semantic_decision.{key} must be between 1 and {upper}",
+                    location=f"semantic_decision.{key}",
+                )
+            )
     return tuple(violations)
 
 
@@ -411,4 +478,12 @@ def policy_from_config(config):
         "source_suffixes": tuple(
             _string_list(analysis.get("source_suffixes"), "source_suffixes", "analysis")
         ),
+        "semantic_decision": {
+            **SEMANTIC_DECISION_DEFAULTS,
+            **(
+                config.get("semantic_decision", {})
+                if isinstance(config.get("semantic_decision"), dict)
+                else {}
+            ),
+        },
     }

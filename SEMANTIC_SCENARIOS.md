@@ -1,6 +1,6 @@
 # Agentic semantic evaluation scenarios
 
-Status: inventory. No semantic judge exists yet.
+Status: inventory and decision-model decision contract.
 
 Implementation status and deterministic extractor gaps live in [docs/limitations.md](docs/limitations.md).
 
@@ -11,8 +11,8 @@ main guards, literal attributes, and declared executable paths. They are weak
 at intent. This document records scenarios where a syntax or token detector
 cannot reliably decide whether a boundary rule is satisfied.
 
-The future semantic judge should evaluate only these ambiguous cases. It must
-not replace deterministic checks, the contract lock, or the violation ratchet.
+The decision-model checker evaluates only these ambiguous cases. It must not
+replace deterministic checks, the contract lock, or the violation ratchet.
 
 ## Judge contract
 
@@ -27,7 +27,7 @@ Input:
 
 Output:
 
-- `violation`, `allowed`, or `needs-human-review`;
+- `compliant`, `violating`, or `needs-human-review`;
 - confidence;
 - rationale tied to concrete evidence;
 - suggested fix when the result is `violation`.
@@ -37,7 +37,8 @@ Invariants:
 - the judge is read-only;
 - uncertainty must produce `needs-human-review`, never a silent pass;
 - config, lock, baseline, and checker artifacts are outside its authority;
-- its decision is advisory until a human reviews the policy impact.
+- model decisions resolve per-finding reviews only under locked policy; config,
+  lock, baseline, and checker artifacts remain authority-gated.
 
 ## Scenarios
 

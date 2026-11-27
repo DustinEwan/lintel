@@ -21,7 +21,7 @@ python -m pip install .
 | Write merged facts | `lintel check --out facts.json` |
 | Recheck a facts file | `lintel check facts.json --config lintel.toml` |
 | Generate from saved facts | `lintel generate-lean --facts facts.json` |
-| List rules | `lintel list-rules` |
+| Resolve semantic reviews with a decision model | `lintel semantic-check` |
 | Explain a rule | `lintel explain adapter_cli_concern` |
 | Relock after a contract change | `lintel update-lock` |
 | Accept a clean baseline update | `lintel accept-baseline` |
@@ -106,3 +106,4 @@ Python parse failures are recorded in an `unparsed` array and reported as `unpar
 - [docs/limitations.md](limitations.md) — durable limits and extractor-gap status.
 - [ESCAPE_HATCHES.md](../ESCAPE_HATCHES.md) — exception mechanisms.
 - [SEMANTIC_SCENARIOS.md](../SEMANTIC_SCENARIOS.md) — ambiguity cases requiring judgment.
+- [semantic-decisions.md](semantic-decisions.md) — decision-model contract and trust boundary.

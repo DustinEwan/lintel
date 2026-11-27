@@ -5,7 +5,7 @@ This is the status catalog for Lintel's known limits. It is not the place to def
 - Exception mechanisms live in [ESCAPE_HATCHES.md](../ESCAPE_HATCHES.md).
 - Ambiguity scenarios live in [SEMANTIC_SCENARIOS.md](../SEMANTIC_SCENARIOS.md).
 - Formal-model claims live in [docs/formal-spec.md](formal-spec.md), summarized in [README.md](../README.md).
-- Implementable extractor gaps are candidates for GitHub issues. Trust boundaries and intentional ambiguity cases are not.
+- Decision-model scope and audit fields live in [semantic-decisions.md](semantic-decisions.md).
 
 ## 1. Already mitigated
 
@@ -21,7 +21,7 @@ These limits remain true, but Lintel fails closed or provides a reviewed path in
 | Build-tagged Go files | Python scanner evaluates `//go:build` and `// +build` against host `GOOS`/`GOARCH` and excludes fully evaluated inactive files | Indeterminate constraints remain `unparsed_source` |
 | Multi-line TypeScript `from` clauses | Python scanner now joins multi-line import/export clauses before scanning (PR #4); native extractor also handles them | Non-literal dynamic dependencies remain unparsed |
 | Toolchain-backed extraction unavailable | Python scanners are dependency-free and are the installed default | Native extractors remain source-checkout tools requiring Rust, Go, or Node/TypeScript |
-| Reflection, generated code, runtime dependency injection | Detected cases become `semantic_review` with fingerprints and reasons | Review decision is required; no automatic pass |
+| Reflection, generated code, runtime dependency injection | Detected cases become `semantic_review` with fingerprints and reasons; the decision-model checker can resolve bounded cases | Low-confidence or failed model calls remain pending |
 
 ## 2. Intentional formal-model trust boundaries
 
@@ -29,7 +29,7 @@ The generated Lean instance proves deterministic fact/policy checks only. These 
 
 - extraction completeness;
 - runtime behavior;
-- semantic judgment;
+- semantic judgment and decision-model correctness;
 - typed capability choices;
 - strict layering under a policy that permits same-region edges and multiple core regions;
 - runtime/nested subsystem embeddings.

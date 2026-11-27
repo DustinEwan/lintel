@@ -10,6 +10,15 @@ entrypoints_root = "lintel/cli"
 [analysis]
 source_suffixes = [".py", ".go", ".rs", ".mjs", ".js", ".ts", ".tsx"]
 
+[semantic_decision]
+model = "liquid/d1.2"
+endpoint = "https://openrouter.ai/api/alpha/decisions"
+api_key_env = "OPENROUTER_API_KEY"
+answer_key = "decision"
+min_confidence = 0.85
+timeout = 20
+max_findings = 64
+
 [scopes.external]
 patterns = ["*"]
 priority = 0
@@ -171,6 +180,9 @@ patterns = [
   "time",
   "tomllib",
   "traceback",
+  "urllib",
+  "urllib.error",
+  "urllib.request",
   "typing*"
 ]
 allowed = ["platform"]
