@@ -185,6 +185,8 @@ source "$HOME/.elan/env"
 lake build
 ```
 
+CI runs both `lake build` and the Python checker pipeline on pushes and pull requests.
+
 ## Extractors and checker
 
 `external/cli/extract_*.py` are CLI entrypoints. They call the extractor libraries in `adapters/*_extractor.py`, which scan a project root and emit JSON facts:
