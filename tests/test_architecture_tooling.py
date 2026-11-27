@@ -339,6 +339,13 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual(architecture_config.validate_config(data, directory), ())
             with open(os.path.join(directory, "architecture.baseline.json"), encoding="utf-8") as handle:
                 self.assertEqual(json.load(handle)["violations"], [])
+            with open(os.path.join(directory, ".gitignore"), encoding="utf-8") as handle:
+                ignored = handle.read().splitlines()
+            self.assertEqual(ignored.count("architecture.cache.json"), 1)
+            runtime.scaffold("clean", directory)
+            with open(os.path.join(directory, ".gitignore"), encoding="utf-8") as handle:
+                ignored = handle.read().splitlines()
+            self.assertEqual(ignored.count("architecture.cache.json"), 1)
 
 
 

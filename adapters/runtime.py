@@ -484,3 +484,15 @@ class ArchitectureRuntime:
         contract_lock.write_lock(
             root, config_path, checker_root=self.tool_root
         )
+
+        ignore_path = os.path.join(root, ".gitignore")
+        existing = ""
+        if os.path.isfile(ignore_path):
+            with open(ignore_path, "r", encoding="utf-8") as handle:
+                existing = handle.read()
+        entries = {line.strip() for line in existing.splitlines()}
+        if incremental_cache.CACHE_FILE not in entries:
+            with open(ignore_path, "a", encoding="utf-8") as handle:
+                if existing and not existing.endswith("\n"):
+                    handle.write("\n")
+                handle.write(incremental_cache.CACHE_FILE + "\n")
