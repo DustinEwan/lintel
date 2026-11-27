@@ -23,5 +23,7 @@ Pi: call `lintel hook session-start` on `session_start` and
 
 OMP: this repo ships [`.omp/hooks/post/lintel.js`](.omp/hooks/post/lintel.js). Native discovery loads it from `.omp/hooks/post/*.js` after restarting `omp`. It runs `lintel hook post-edit` after `edit`/`write` and `lintel hook stop` when an agent turn settles. Semantic findings also trigger `lintel hook review-request`, surfacing fingerprints and review commands in tool context and stop logs.
 
+Direct decision path: `/lintel-review <fingerprint> <decision> <reason...>` runs `lintel review` in the governed project and refreshes the hook status.
+
 Generic harnesses: run the hook command after edits and before completion; treat
 a nonzero exit or `block: true` as a failed check.
