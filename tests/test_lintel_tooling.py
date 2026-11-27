@@ -14,6 +14,7 @@ import lintel.adapters.runtime as runtime_module
 from lintel.adapters import agent_files
 from lintel.adapters import typescript_extractor
 from lintel.adapters import rust_extractor
+from lintel.adapters import go_extractor
 from lintel.core import hooks, review
 from lintel.adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from lintel.adapters.runtime import LintelRuntime
@@ -946,6 +947,123 @@ class RustExtractorTests(unittest.TestCase):
             data = rust_extractor.extract(directory)
             self.assertEqual(len(data["unparsed"]), 1)
             self.assertEqual(data["unparsed"][0]["reason"], "include! target not found")
+
+
+class GoExtractorTests(unittest.TestCase):
+    TARGET = ("linux", "amd64", None)
+
+    @staticmethod
+    def write(directory, relative, content):
+        path = os.path.join(directory, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(content)
+
+    def test_active_go_build_tag_produces_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "go.mod", "module example.com/demo\n")
+            self.write(
+                directory,
+                "main.go",
+                '//go:build linux && amd64\n\npackage main\n\n'
+                'import "example.com/demo/helper"\n',
+            )
+            self.write(directory, "helper/helper.go", "package helper\n")
+
+            data = go_extractor.extract(directory, target=self.TARGET)
+            dependencies = {
+                (item["from"], item["to"], item["source"])
+                for item in data["dependencies"]
+            }
+            self.assertIn(
+                ("example.com/demo", "example.com/demo/helper", "main.go"),
+                dependencies,
+            )
+            self.assertEqual(data["unparsed"], [])
+
+    def test_inactive_go_build_tag_is_excluded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "go.mod", "module example.com/demo\n")
+            self.write(
+                directory,
+                "main.go",
+                '//go:build windows\n\npackage main\n\n'
+                'import "example.com/demo/helper"\n',
+            )
+            self.write(directory, "helper/helper.go", "package helper\n")
+
+            data = go_extractor.extract(directory, target=self.TARGET)
+            self.assertEqual(data["dependencies"], [])
+            self.assertEqual([item["name"] for item in data["modules"]], ["example.com/demo/helper"])
+            self.assertEqual(data["unparsed"], [])
+
+    def test_legacy_plus_build_tags_are_evaluated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "go.mod", "module example.com/demo\n")
+            self.write(
+                directory,
+                "active.go",
+                '// +build linux,amd64 darwin\n\npackage main\n\n'
+                'import "example.com/demo/helper"\n',
+            )
+            self.write(
+                directory,
+                "inactive.go",
+                '// +build windows\n\npackage main\n\n'
+                'import "example.com/demo/helper"\n',
+            )
+            self.write(directory, "helper/helper.go", "package helper\n")
+
+            data = go_extractor.extract(directory, target=self.TARGET)
+            sources = {item["source"] for item in data["dependencies"]}
+            self.assertEqual(sources, {"active.go"})
+            self.assertEqual(data["unparsed"], [])
+
+    def test_indeterminate_constraint_stays_unparsed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "go.mod", "module example.com/demo\n")
+            self.write(
+                directory,
+                "main.go",
+                '//go:build customtag\n\npackage main\n\n'
+                'import "example.com/demo/helper"\n',
+            )
+            self.write(directory, "helper/helper.go", "package helper\n")
+
+            data = go_extractor.extract(directory, target=self.TARGET)
+            self.assertEqual(
+                [item["reason"] for item in data["unparsed"]],
+                ["indeterminate build constraint"],
+            )
+            self.assertEqual(len(data["dependencies"]), 1)
+
+    def test_unsupported_legacy_constraint_with_go_build_stays_unparsed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "go.mod", "module example.com/demo\n")
+            self.write(
+                directory,
+                "main.go",
+                '//go:build linux\n// +build customtag\n\npackage main\n\n'
+                'import "example.com/demo/helper"\n',
+            )
+            self.write(directory, "helper/helper.go", "package helper\n")
+
+            data = go_extractor.extract(directory, target=self.TARGET)
+            self.assertEqual(
+                [item["reason"] for item in data["unparsed"]],
+                ["indeterminate build constraint"],
+            )
+            self.assertEqual(len(data["dependencies"]), 1)
+
+    def test_unparseable_import_stays_unparsed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "go.mod", "module example.com/demo\n")
+            self.write(directory, "main.go", "package main\n\nimport (\n")
+            data = go_extractor.extract(directory, target=self.TARGET)
+            self.assertEqual(
+                [item["reason"] for item in data["unparsed"]],
+                ["unterminated import block"],
+            )
 
 if __name__ == "__main__":
     unittest.main()
