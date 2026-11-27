@@ -8,7 +8,7 @@ import re
 
 from extract_common import iter_files, rel, write_json
 
-SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts")
+SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
 IMPORT_FROM_RE = re.compile(
     r'\b(?:import|export)\s+(?:[^;\n]*?\sfrom\s*)?["\']([^"\']+)["\']'
 )

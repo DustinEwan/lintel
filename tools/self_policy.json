@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "default_region": "external",
+  "regions": [
+    {
+      "name": "core",
+      "core": true,
+      "patterns": [
+        "Architecture",
+        "tools.check_architecture",
+        "tools.extract_common"
+      ]
+    },
+    {
+      "name": "stdlib",
+      "core": true,
+      "patterns": [
+        "argparse",
+        "ast",
+        "bytes",
+        "collections",
+        "contextlib",
+        "core",
+        "csv",
+        "dataclasses",
+        "datetime",
+        "encoding/json",
+        "enum",
+        "flag",
+        "fnmatch",
+        "fmt",
+        "glob",
+        "go/parser",
+        "go/token",
+        "hashlib",
+        "io",
+        "itertools",
+        "json",
+        "logging",
+        "math",
+        "node:child_process",
+        "node:fs",
+        "node:path",
+        "os",
+        "os/exec",
+        "path/filepath",
+        "pathlib",
+        "posixpath",
+        "random",
+        "re",
+        "shutil",
+        "sort",
+        "std",
+        "strconv",
+        "strings",
+        "subprocess",
+        "sys",
+        "tempfile",
+        "time",
+        "tomllib",
+        "traceback",
+        "typing"
+      ]
+    },
+    {
+      "name": "extractors",
+      "core": false,
+      "patterns": [
+        "tools.extract_*",
+        "tools.check_self",
+        "tools/extract_typescript_native",
+        "rust_extractor",
+        "architecture-extractors/go-extractor"
+      ]
+    },
+    {
+      "name": "external",
+      "core": false,
+      "patterns": []
+    }
+  ],
+  "allowed": {
+    "core": ["core", "stdlib"],
+    "stdlib": ["stdlib"],
+    "extractors": ["core", "stdlib", "extractors", "external"],
+    "external": ["external"]
+  },
+  "forbidden": {
+    "core": [
+      "tools.extract_*",
+      "tools.check_self",
+      "tools/extract_typescript_native",
+      "rust_extractor",
+      "architecture-extractors/go-extractor"
+    ]
+  }
+}

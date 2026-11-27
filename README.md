@@ -197,11 +197,14 @@ go run ./go-extractor/main.go --root /path/to/project --out go-native-facts.json
 npm install
 node tools/extract_typescript_native.mjs --root /path/to/project --out ts-native-facts.json
 python3 tools/check_architecture.py rust-facts.json --policy tests/fixtures/policy.json
+python3 tools/check_self.py
 ```
 
 The Python tools are dependency-free. `tools/extract_python.py` is the extractor for Python projects and uses the standard-library `ast` parser. `rust-extractor` uses `cargo metadata` plus `syn`, `go-extractor` uses `go list -json` plus `go/parser`, and `tools/extract_typescript_native.mjs` uses the TypeScript compiler API. Prefer native extractors when their toolchains are available in CI.
 
 Extraction is fail-closed: unsupported constructs are recorded in an `unparsed` array, and the checker reports them as `unparsed_source` violations. CI therefore cannot silently pass on source code the scanner did not understand.
+
+Dogfooding: `python3 tools/check_self.py` extracts this repository's own implementation, merges the facts, and checks them against `tools/self_policy.json`. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
 
 Limits:
 
@@ -209,7 +212,7 @@ Limits:
 - `tools/extract_python.py` handles absolute and relative imports, `__init__.py` packages, `src/` layouts, and literal `importlib`/`__import__` calls. Relative dynamic imports are resolved against `package=` or the current package; parse errors, non-literal or unresolved dynamic imports, and `eval`/`exec` are reported as unparsed.
 - Rust `use` items are resolved to the nearest known local module; `pub use`, `pub(crate) use`, `pub(super) use`, `pub(in path) use`, and `extern crate` are included. Unrecognized visibility forms are reported as unparsed, as are `include!`, `#[path]`, and `macro_rules!`. The native extractor parses Rust ASTs with `syn`, reads the package name from `cargo metadata`, and reports workspace roots as unparsed instead of attributing all members to the first package.
 - The Python Go scanner parses import declarations from source. `go-extractor` uses `go list -json` plus `go/parser` for package paths and import positions. Build-tagged and unparseable files are reported as unparsed.
-- The Python TypeScript scanner handles single-line static imports/exports, `require()`, and `import()` including import attributes; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.
+- The Python TypeScript scanner handles single-line static imports/exports, `require()`, and `import()` including import attributes across `.ts`, `.tsx`, `.mts`, `.cts`, `.mjs`, and `.cjs`; multi-line `from` clauses and non-literal dynamic dependencies are reported as unparsed.
 - `tools/extract_typescript_native.mjs` parses TypeScript ASTs, honors `tsconfig.json`, resolves relative imports, and covers multi-line imports, type-only imports, re-exports, `import type`, dynamic imports with import attributes, and non-literal dynamic dependencies. Parse errors, unresolved relative specifiers, and unsupported extra dynamic arguments are reported as unparsed.
 - Python scanners remain available when language toolchains are not installed; Python extraction needs only Python 3, while the other native extractors require Rust, Go 1.22+, and TypeScript/Node toolchains respectively.
 
