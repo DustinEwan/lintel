@@ -184,6 +184,7 @@ lake build
 - `cycle`: a module dependency cycle.
 
 Policy patterns use shell-style `fnmatch`; the first matching region wins. `default_region` catches external packages. Region entries with `"core": true` correspond to `Core` in the Lean model. `tests/fixtures/policy.json` is an example covering Rust, Go, and TypeScript module names.
+The self-policy makes the layers explicit: `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, `infrastructure`, and `external` are outer regions. Ports are contracts and boundary data owned by core, CLI entrypoints drive adapters, infrastructure is file/JSON/OS plumbing, and `external` is unowned packages and systems.
 
 Usage:
 

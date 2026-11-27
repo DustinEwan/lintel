@@ -3,6 +3,18 @@
   "default_region": "external",
   "regions": [
     {
+      "name": "ports",
+      "core": true,
+      "patterns": [
+        "architecture_core.model*",
+        "architecture_core.ports*",
+        "Architecture.Port*",
+        "Architecture.CapabilityPort*",
+        "Architecture.TypedCapabilityPort*",
+        "Architecture.BoundaryDataLanguage*"
+      ]
+    },
+    {
       "name": "core",
       "core": true,
       "patterns": [
@@ -11,7 +23,7 @@
       ]
     },
     {
-      "name": "stdlib",
+      "name": "platform",
       "core": true,
       "patterns": [
         "argparse",
@@ -62,6 +74,14 @@
       ]
     },
     {
+      "name": "entrypoints",
+      "core": false,
+      "patterns": [
+        "check_architecture",
+        "check_self"
+      ]
+    },
+    {
       "name": "infrastructure",
       "core": false,
       "patterns": ["extract_common"]
@@ -71,8 +91,6 @@
       "core": false,
       "patterns": [
         "extract_*",
-        "check_self",
-        "check_architecture",
         "extract_typescript_native",
         "rust_extractor",
         "architecture-extractors/go-extractor"
@@ -85,17 +103,42 @@
     }
   ],
   "allowed": {
-    "core": ["core", "stdlib"],
-    "stdlib": ["stdlib"],
-    "adapters": ["core", "stdlib", "adapters", "infrastructure", "external"],
-    "infrastructure": ["stdlib", "infrastructure"],
+    "ports": ["ports", "core", "platform"],
+    "core": ["ports", "core", "platform"],
+    "platform": ["platform"],
+    "entrypoints": [
+      "ports",
+      "core",
+      "platform",
+      "adapters",
+      "infrastructure",
+      "external"
+    ],
+    "adapters": [
+      "ports",
+      "core",
+      "platform",
+      "adapters",
+      "infrastructure",
+      "external"
+    ],
+    "infrastructure": ["platform", "infrastructure", "external"],
     "external": ["external"]
   },
   "forbidden": {
-    "core": [
-      "extract_*",
-      "check_self",
+    "ports": [
       "check_architecture",
+      "check_self",
+      "extract_*",
+      "extract_typescript_native",
+      "rust_extractor",
+      "architecture-extractors/go-extractor",
+      "extract_common"
+    ],
+    "core": [
+      "check_architecture",
+      "check_self",
+      "extract_*",
       "extract_typescript_native",
       "rust_extractor",
       "architecture-extractors/go-extractor",
