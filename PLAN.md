@@ -221,6 +221,18 @@ by default and are configurable. Core and ports must not own either category.
 Policies live under `[boundary_concerns.entrypoint_only]` and
 `[boundary_concerns.mechanism]`.
 
+### Source analyzer boundary
+
+Boundary-concern detection is a mechanism, not a core rule. `SourceAnalyzerPort`
+defines what a language analyzer must emit: executable surface, boundary
+concerns, wrapper operations, and unparsed source. Language-specific adapters
+implement that port and are registered by suffix. The checker consumes only the
+normalized facts.
+
+Ambiguous cases that require intent or whole-program reasoning are recorded in
+`SEMANTIC_SCENARIOS.md` for a future agentic semantic judge. They are not
+silently treated as passes.
+
 ### Rules
 
 - `adapter_cli_concern`
@@ -377,6 +389,7 @@ Do not implement yet:
 - broad README/CI command scanning;
 - automatic config generation from existing projects;
 - policy inference from history.
+- agentic semantic judge for the scenarios recorded in `SEMANTIC_SCENARIOS.md`;
 
 These are either expensive, brittle across languages, or dependent on richer fact models. Add them only when a concrete invariant cannot be enforced with imports, scopes, executable declarations, and API-use facts.
 

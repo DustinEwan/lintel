@@ -58,6 +58,15 @@ class WrapperOperation:
     line: int
 
 
+
+@dataclass(frozen=True)
+class SourceAnalysis:
+    entrypoint: Entrypoint | None = None
+    concerns: tuple[BoundaryConcernUse, ...] = ()
+    wrapper_operations: tuple[WrapperOperation, ...] = ()
+    unparsed: tuple[UnparsedSource, ...] = ()
+
+
 @dataclass(frozen=True)
 class BuildArtifact:
     source: str

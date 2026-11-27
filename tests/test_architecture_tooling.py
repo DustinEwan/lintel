@@ -1,4 +1,3 @@
-import ast
 import json
 import os
 import sys
@@ -10,7 +9,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "adapters"))
 
-from adapters import architecture_config, contract_facts, contract_lock
+from adapters import architecture_config, contract_lock
+from adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from adapters.runtime import ArchitectureRuntime
 from architecture_core.checker import (
     check_boundary_concerns,
@@ -152,12 +152,26 @@ class BoundaryConcernTests(unittest.TestCase):
         self.assertEqual(check_boundary_concerns(facts, policy), ())
 
     def test_plain_attribute_use_is_detected(self):
-        tree = ast.parse(
-            "import sys\nvalue = sys.argv[1]\nimport os\nenv = os.environ\n"
+        analysis = PythonSourceAnalyzer().analyze(
+            "adapters/example.py",
+            "import sys\nvalue = sys.argv[1]\nimport os\nenv = os.environ\n",
         )
-        found = {item[0] for item in contract_facts._python_concerns(tree)}
+        found = {item.concern for item in analysis.concerns}
         self.assertIn("argv", found)
         self.assertIn("env", found)
+
+    def test_native_analyzers_are_language_specific(self):
+        go = analyzer_for_suffix(".go")
+        javascript = analyzer_for_suffix(".ts")
+        self.assertEqual(
+            go.analyze("adapter/main.go", 'text = "process.env"\n').concerns,
+            (),
+        )
+        self.assertEqual(
+            javascript.analyze("adapter/main.ts", 'text = "fmt.Print"\n').concerns,
+            (),
+        )
+        self.assertIsNone(analyzer_for_suffix(".zzz"))
 
 
 class WrapperOperationTests(unittest.TestCase):

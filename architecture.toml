@@ -222,7 +222,9 @@ patterns = [
   "architecture_config",
   "contract_facts",
   "contract_lock",
-  "extract_common"
+  "extract_common",
+  "adapters.language",
+  "adapters.language.*",
 ]
 allowed = ["ports", "core", "platform", "infrastructure", "external"]
 

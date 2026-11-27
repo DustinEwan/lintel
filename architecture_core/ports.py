@@ -12,7 +12,7 @@ from .model import (
     PathOverrides,
     Policy,
     SelfCheckRequest,
-    SelfConfig,
+    SourceAnalysis,
     Violation,
 )
 
@@ -25,6 +25,14 @@ class FactCollectionPort(Protocol):
     def collect_self_facts(
         self, config: SelfConfig, overrides: PathOverrides
     ) -> FactSet: ...
+
+
+
+
+class SourceAnalyzerPort(Protocol):
+    suffixes: tuple[str, ...]
+
+    def analyze(self, relative_path: str, source: str) -> SourceAnalysis: ...
 
 
 class FactSourcePort(Protocol):
@@ -74,6 +82,7 @@ __all__ = [
     "FactCollectionPort",
     "FactSinkPort",
     "FactSourcePort",
+    "SourceAnalyzerPort",
     "PolicySourcePort",
     "SelfConfigPort",
 ]
