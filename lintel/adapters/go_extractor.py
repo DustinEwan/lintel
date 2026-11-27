@@ -201,10 +201,12 @@ def build_constraint_status(text, target):
     value = evaluate_go_build(go_build[0], target) if len(go_build) == 1 else None
     if plus_build:
         plus_value = evaluate_plus_build(plus_build, target)
-        if value is not None and plus_value is not None and value != plus_value:
+        if plus_value is None:
             value = None
         elif value is None:
             value = plus_value
+        elif value != plus_value:
+            value = None
     return value, first_line
 
 def module_prefix(root):

@@ -1037,6 +1037,24 @@ class GoExtractorTests(unittest.TestCase):
             )
             self.assertEqual(len(data["dependencies"]), 1)
 
+    def test_unsupported_legacy_constraint_with_go_build_stays_unparsed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "go.mod", "module example.com/demo\n")
+            self.write(
+                directory,
+                "main.go",
+                '//go:build linux\n// +build customtag\n\npackage main\n\n'
+                'import "example.com/demo/helper"\n',
+            )
+            self.write(directory, "helper/helper.go", "package helper\n")
+
+            data = go_extractor.extract(directory, target=self.TARGET)
+            self.assertEqual(
+                [item["reason"] for item in data["unparsed"]],
+                ["indeterminate build constraint"],
+            )
+            self.assertEqual(len(data["dependencies"]), 1)
+
     def test_unparseable_import_stays_unparsed(self):
         with tempfile.TemporaryDirectory() as directory:
             self.write(directory, "go.mod", "module example.com/demo\n")
