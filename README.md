@@ -87,16 +87,17 @@ python3 -m venv .venv
 python -m pip install .
 ```
 
-Quickstart from the governed project directory:
+Quickstart:
 
 ```sh
+lintel init --preset clean --output /path/to/new-project  # new projects only
 lintel check
 lintel check --out facts.json
 lintel check facts.json --config lintel.toml
 lintel generate-lean --facts facts.json
 ```
 
-`--root` defaults to the current directory; set it only when running elsewhere. For a new project, run `lintel init --preset clean --output /path/to/new-project`.
+`--root` defaults to the current directory; set it only when running elsewhere.
 
 Full command reference, native extractors, lock/cache behavior, and implementation layout are in [docs/usage.md](docs/usage.md). Wire generated hooks into a harness with [HARNESS_SETUP.md](HARNESS_SETUP.md). The installed CLI uses dependency-free Python analyzers by default.
 
