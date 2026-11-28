@@ -13,10 +13,10 @@ import tomllib
 from lintel.core.graph_facts import merge_graph_facts
 
 from . import (
-    go_extractor,
-    rust_extractor,
+    source_graph_go,
     source_graph_python,
-    typescript_extractor,
+    source_graph_rust,
+    source_graph_typescript,
 )
 
 
@@ -26,8 +26,8 @@ def _python(root):
 
 
 def _typescript(root):
-    """TypeScript module identities and import edges from its graph reader."""
-    return typescript_extractor.extract(root)
+    """TypeScript module identities and import edges from tree-sitter ASTs."""
+    return source_graph_typescript.extract(root)
 
 
 def _go_modules(modules):
@@ -42,7 +42,7 @@ def _go_modules(modules):
 
 def _go(root):
     """Go module identities and import edges, including build-tag constraints."""
-    facts = go_extractor.extract(root)
+    facts = source_graph_go.extract(root)
     return {**facts, "modules": _go_modules(facts.get("modules", []))}
 
 
@@ -66,7 +66,7 @@ def _rust_workspace_unparsed(root):
 
 def _rust(root):
     """Rust crate module identities, use edges, and unsupported constructs."""
-    facts = rust_extractor.extract(root)
+    facts = source_graph_rust.extract(root)
     unparsed = facts.get("unparsed", []) + _rust_workspace_unparsed(root)
     return {**facts, "unparsed": unparsed}
 

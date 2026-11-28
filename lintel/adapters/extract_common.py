@@ -1,4 +1,3 @@
-import json
 import os
 
 SKIP_DIRS = {
@@ -38,10 +37,3 @@ def rel(path, root):
     return os.path.relpath(path, root).replace(os.sep, "/")
 
 
-def write_json(path, facts):
-    parent = os.path.dirname(path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(facts, f, indent=2)
-        f.write("\n")

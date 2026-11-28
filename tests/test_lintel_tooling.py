@@ -15,9 +15,9 @@ sys.path.insert(0, ROOT)
 from lintel.adapters import config as config_adapter, contract_facts, contract_lock, incremental_cache, lean_generator
 import lintel.adapters.runtime as runtime_module
 from lintel.adapters import agent_files
-from lintel.adapters import typescript_extractor
-from lintel.adapters import rust_extractor
-from lintel.adapters import go_extractor
+from lintel.adapters import source_graph_go
+from lintel.adapters import source_graph_rust
+from lintel.adapters import source_graph_typescript
 from lintel.adapters import contract_facts, decision_model
 from lintel.core import hooks, review
 from lintel.core.ports import semantic_stage
@@ -1437,7 +1437,7 @@ class AgentInstructionTests(unittest.TestCase):
                 self.assertIn("lintel hook", handle.read())
 
 
-class TypeScriptExtractorTests(unittest.TestCase):
+class TypeScriptGraphContributorTests(unittest.TestCase):
     def test_multiline_imports_and_exports_produce_dependencies(self):
         with tempfile.TemporaryDirectory() as directory:
             source_dir = os.path.join(directory, "src")
@@ -1450,7 +1450,7 @@ class TypeScriptExtractorTests(unittest.TestCase):
             with open(os.path.join(source_dir, "b.ts"), "w", encoding="utf-8") as handle:
                 handle.write("export const first = 1;\n")
 
-            data = typescript_extractor.extract(directory)
+            data = source_graph_typescript.extract(directory)
             dependencies = {
                 (item["from"], item["to"], item["line"])
                 for item in data["dependencies"]
@@ -1463,7 +1463,7 @@ class TypeScriptExtractorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with open(os.path.join(directory, "a.ts"), "w", encoding="utf-8") as handle:
                 handle.write('const name = "b";\nimport(name);\n')
-            data = typescript_extractor.extract(directory)
+            data = source_graph_typescript.extract(directory)
             self.assertEqual(len(data["unparsed"]), 1)
             self.assertEqual(data["unparsed"][0]["line"], 2)
             self.assertEqual(
@@ -1472,7 +1472,7 @@ class TypeScriptExtractorTests(unittest.TestCase):
             )
 
 
-class RustExtractorTests(unittest.TestCase):
+class RustGraphContributorTests(unittest.TestCase):
     @staticmethod
     def write(directory, relative, content):
         path = os.path.join(directory, relative)
@@ -1487,7 +1487,7 @@ class RustExtractorTests(unittest.TestCase):
             self.write(directory, "src/custom.rs", "use crate::helper;\n")
             self.write(directory, "src/helper.rs", "pub fn helper() {}\n")
 
-            data = rust_extractor.extract(directory)
+            data = source_graph_rust.extract(directory)
             modules = {item["name"]: item["path"] for item in data["modules"]}
             self.assertEqual(modules.get("demo::inner"), "src/custom.rs")
             self.assertNotIn("demo::custom", modules)
@@ -1505,7 +1505,7 @@ class RustExtractorTests(unittest.TestCase):
             self.write(directory, "src/defs.rs", "use crate::helper;\n")
             self.write(directory, "src/helper.rs", "pub fn helper() {}\n")
 
-            data = rust_extractor.extract(directory)
+            data = source_graph_rust.extract(directory)
             modules = {item["name"] for item in data["modules"]}
             self.assertNotIn("demo::defs", modules)
             dependencies = {
@@ -1524,7 +1524,7 @@ class RustExtractorTests(unittest.TestCase):
                 "#[path = module_name()] mod inner;\n"
                 "macro_rules! generate { () => {} }\n",
             )
-            data = rust_extractor.extract(directory)
+            data = source_graph_rust.extract(directory)
             reasons = {item["reason"] for item in data["unparsed"]}
             self.assertIn("include! can inject dependencies", reasons)
             self.assertIn("#[path] changes module paths", reasons)
@@ -1542,7 +1542,7 @@ class RustExtractorTests(unittest.TestCase):
             self.write(directory, "src/custom.rs", "use crate::helper;\n")
             self.write(directory, "src/helper.rs", "pub fn helper() {}\n")
 
-            data = rust_extractor.extract(directory)
+            data = source_graph_rust.extract(directory)
             modules = {item["name"]: item["path"] for item in data["modules"]}
             self.assertEqual(modules.get("demo::inner"), "src/custom.rs")
             self.assertEqual(data["unparsed"], [])
@@ -1550,12 +1550,12 @@ class RustExtractorTests(unittest.TestCase):
     def test_missing_literal_include_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             self.write(directory, "src/lib.rs", 'include!("missing.rs");\n')
-            data = rust_extractor.extract(directory)
+            data = source_graph_rust.extract(directory)
             self.assertEqual(len(data["unparsed"]), 1)
             self.assertEqual(data["unparsed"][0]["reason"], "include! target not found")
 
 
-class GoExtractorTests(unittest.TestCase):
+class GoGraphContributorTests(unittest.TestCase):
     TARGET = ("linux", "amd64", None)
 
     @staticmethod
@@ -1576,7 +1576,7 @@ class GoExtractorTests(unittest.TestCase):
             )
             self.write(directory, "helper/helper.go", "package helper\n")
 
-            data = go_extractor.extract(directory, target=self.TARGET)
+            data = source_graph_go.extract(directory, target=self.TARGET)
             dependencies = {
                 (item["from"], item["to"], item["source"])
                 for item in data["dependencies"]
@@ -1598,7 +1598,7 @@ class GoExtractorTests(unittest.TestCase):
             )
             self.write(directory, "helper/helper.go", "package helper\n")
 
-            data = go_extractor.extract(directory, target=self.TARGET)
+            data = source_graph_go.extract(directory, target=self.TARGET)
             self.assertEqual(data["dependencies"], [])
             self.assertEqual([item["name"] for item in data["modules"]], ["example.com/demo/helper"])
             self.assertEqual(data["unparsed"], [])
@@ -1620,7 +1620,7 @@ class GoExtractorTests(unittest.TestCase):
             )
             self.write(directory, "helper/helper.go", "package helper\n")
 
-            data = go_extractor.extract(directory, target=self.TARGET)
+            data = source_graph_go.extract(directory, target=self.TARGET)
             sources = {item["source"] for item in data["dependencies"]}
             self.assertEqual(sources, {"active.go"})
             self.assertEqual(data["unparsed"], [])
@@ -1636,7 +1636,7 @@ class GoExtractorTests(unittest.TestCase):
             )
             self.write(directory, "helper/helper.go", "package helper\n")
 
-            data = go_extractor.extract(directory, target=self.TARGET)
+            data = source_graph_go.extract(directory, target=self.TARGET)
             self.assertEqual(
                 [item["reason"] for item in data["unparsed"]],
                 ["indeterminate build constraint"],
@@ -1654,7 +1654,7 @@ class GoExtractorTests(unittest.TestCase):
             )
             self.write(directory, "helper/helper.go", "package helper\n")
 
-            data = go_extractor.extract(directory, target=self.TARGET)
+            data = source_graph_go.extract(directory, target=self.TARGET)
             self.assertEqual(
                 [item["reason"] for item in data["unparsed"]],
                 ["indeterminate build constraint"],
@@ -1665,7 +1665,7 @@ class GoExtractorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             self.write(directory, "go.mod", "module example.com/demo\n")
             self.write(directory, "main.go", "package main\n\nimport (\n")
-            data = go_extractor.extract(directory, target=self.TARGET)
+            data = source_graph_go.extract(directory, target=self.TARGET)
             self.assertEqual(
                 [item["reason"] for item in data["unparsed"]],
                 ["unterminated import block"],

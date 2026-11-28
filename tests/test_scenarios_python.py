@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from lintel.adapters import python_extractor
+from lintel.adapters import source_graph_python
 from lintel.adapters.language.python_analyzer import (
     PythonSourceAnalyzer,
     configure_env_call_patterns,
@@ -201,14 +201,14 @@ class PythonScenarioTests(unittest.TestCase):
         self.assertEqual(concern_lines(analysis, "logging"), [1])
 
 
-class PythonExtractorTests(unittest.TestCase):
+class PythonGraphContributorTests(unittest.TestCase):
     def test_external_from_import_resolves_to_its_module(self):
         with tempfile.TemporaryDirectory() as directory:
             with open(
                 os.path.join(directory, "sample.py"), "w", encoding="utf-8"
             ) as handle:
                 handle.write("from datetime import datetime\nvalue = datetime.now()\n")
-            data = python_extractor.extract(directory)
+            data = source_graph_python.extract(directory)
             self.assertEqual(
                 [
                     (item["from"], item["to"])
