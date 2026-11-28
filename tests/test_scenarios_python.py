@@ -25,6 +25,14 @@ class PythonScenarioTests(unittest.TestCase):
         self.assertEqual(concern_lines(analysis, "env"), [1, 2, 3])
         self.assertEqual(analysis.reviews, ())
 
+    def test_sem02_wildcard_boundary_import_is_reviewed(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "adapters/sample.py", "from os import *\nvalue = environ\n"
+        )
+        self.assertTrue(
+            any("wildcard import from os" in item.reason for item in analysis.reviews)
+        )
+
     def test_sem03_literal_reflection_is_deterministic(self):
         analysis = PythonSourceAnalyzer().analyze(
             "adapters/sample.py",
@@ -33,7 +41,35 @@ class PythonScenarioTests(unittest.TestCase):
         )
         self.assertEqual(concern_lines(analysis, "env"), [3])
         self.assertEqual(concern_lines(analysis, "argv"), [4])
+
+    def test_sem05_unknown_cli_framework_decorator_is_reviewed(self):
+        source = (
+            "from acme_cli import app\n"
+            "@app.command()\n"
+            "def run():\n"
+            "    return 1\n"
+        )
+        adapter = PythonSourceAnalyzer().analyze("adapters/sample.py", source)
+        self.assertTrue(
+            any("unresolved CLI framework" in item.reason for item in adapter.reviews)
+        )
+        entrypoint = PythonSourceAnalyzer().analyze("lintel/cli/sample.py", source)
+        self.assertEqual(entrypoint.reviews, ())
+
+    def test_sem05_plain_decorator_without_framework_is_silent(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "adapters/sample.py", "@command\ndef run():\n    return 1\n"
+        )
+        self.assertEqual(analysis.concerns, ())
         self.assertEqual(analysis.reviews, ())
+
+    def test_sem05_known_click_import_has_no_unresolved_review(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "adapters/sample.py",
+            "import click\n@click.command()\ndef run():\n    return 1\n",
+        )
+        self.assertEqual(analysis.reviews, ())
+        self.assertIn(3, concern_lines(analysis, "argv_parse"))
 
     def test_sem03_unresolved_reflection_stays_a_review(self):
         analysis = PythonSourceAnalyzer().analyze(
@@ -71,6 +107,35 @@ class PythonScenarioTests(unittest.TestCase):
         )
         self.assertEqual(analysis.concerns, ())
         self.assertEqual(analysis.reviews, ())
+
+    def test_sem09_ambiguous_injection_with_live_use_is_reviewed(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "lintel/core/sample.py",
+            "from unknown import Parser\ndef run(args: Parser):\n    return args.parse_args()\n",
+        )
+        self.assertEqual(analysis.concerns, ())
+        self.assertTrue(
+            any("unresolved injected boundary value args" in item.reason for item in analysis.reviews)
+        )
+
+    def test_sem09_name_only_boundary_parameter_is_silent(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "lintel/core/sample.py", "def run(args):\n    return args\n"
+        )
+        self.assertEqual(analysis.concerns, ())
+        self.assertEqual(analysis.reviews, ())
+
+    def test_sem13_review_exempt_paths_are_silent(self):
+        source = (
+            "from os import *\n"
+            "from acme_cli import app\n"
+            "@app.command()\n"
+            "def run():\n"
+            "    return 1\n"
+        )
+        for path in ("tests/sample.py", "fixtures/sample.py", "examples/sample.py"):
+            analysis = PythonSourceAnalyzer().analyze(path, source)
+            self.assertEqual(analysis.reviews, ())
 
     def test_sem12_logging_stream_mechanisms_are_terminal_io(self):
         analysis = PythonSourceAnalyzer().analyze(

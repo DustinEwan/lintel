@@ -41,6 +41,10 @@ REFLECTED_ATTRIBUTE_NAMES = frozenset(
     name.rsplit(".", 1)[-1] for name in BOUNDARY_ATTRIBUTES
 )
 GOVERNED_REFLECTION_BASES = frozenset({"os", "sys", "os.environ"})
+BOUNDARY_IMPORT_MODULES = frozenset({"os", "sys"})
+ENTRYPOINT_PATH_PREFIXES = ("lintel/cli/", "cli/")
+UNRESOLVED_CLI_MARKERS = ("cli", "command")
+REVIEW_EXEMPT_PATH_PARTS = ("tests", "fixtures", "examples")
 INJECTED_PARAMETER_NAMES = frozenset({"args", "argv", "env"})
 CORE_PATH_PREFIXES = ("lintel/core/", "core/")
 LIVE_ENV_ANNOTATIONS = frozenset({"_Environ", "os._Environ"})
@@ -107,6 +111,8 @@ def _import_context(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root = alias.name.split(".", 1)[0]
+                if root in {"typer", "click"}:
+                    cli_frameworks.add(root)
                 aliases[alias.asname or root] = root
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
@@ -194,6 +200,44 @@ def _in_core_module(relative_path):
     return normalized.startswith(CORE_PATH_PREFIXES)
 
 
+def _is_entrypoint_path(relative_path):
+    normalized = str(relative_path).replace("\\", "/")
+    return normalized.startswith(ENTRYPOINT_PATH_PREFIXES)
+
+
+def _is_review_exempt_path(relative_path):
+    normalized = "/" + str(relative_path).replace("\\", "/") + "/"
+    if _is_entrypoint_path(relative_path):
+        return True
+    return any(f"/{part}/" in normalized for part in REVIEW_EXEMPT_PATH_PARTS)
+
+
+def _unresolved_framework_names(aliases, imported):
+    names = set()
+    for name, target in {**aliases, **imported}.items():
+        root = target.split(".", 1)[0]
+        if root in ENTRYPOINT_ONLY_IMPORTS:
+            continue
+        if any(marker in root for marker in UNRESOLVED_CLI_MARKERS):
+            names.add(name)
+    return names
+
+
+def _live_injected_use(function, name):
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == name
+            and func.attr in {"parse_args", "parse_known_args"}
+        ):
+            return True
+    return False
+
+
 def _annotation_kind(annotation, aliases, bindings):
     if annotation is None:
         return "ambiguous"
@@ -263,7 +307,10 @@ def _injected_boundary(tree, aliases, bindings, relative_path):
                 concerns.add(("env", "mechanism", node.lineno))
             elif kind == "argv":
                 concerns.add(("argv_parse", "entrypoint_only", node.lineno))
-            elif kind == "ambiguous" and _stored_on_self(node, argument.arg):
+            elif kind == "ambiguous" and (
+                _stored_on_self(node, argument.arg)
+                or _live_injected_use(node, argument.arg)
+            ):
                 reviews.add((node.lineno, f"unresolved injected boundary value {argument.arg}"))
     return concerns, reviews
 
@@ -377,10 +424,43 @@ def _wrapper_operations(tree, module):
 
 
 def _semantic_reviews(tree, module, relative_path):
-    aliases, imported, _ = _import_context(tree)
+    aliases, imported, cli_frameworks = _import_context(tree)
     bindings = _value_bindings(tree, aliases, imported)
     parents = _parents(tree)
     reviews = set()
+    if not _is_review_exempt_path(relative_path):
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module in BOUNDARY_IMPORT_MODULES
+                and any(alias.name == "*" for alias in node.names)
+            ):
+                reviews.add(
+                    (node.lineno, f"wildcard import from {node.module} may expose boundary state")
+                )
+
+        if not cli_frameworks:
+            unknown_frameworks = _unresolved_framework_names(aliases, imported)
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for decorator in node.decorator_list:
+                    expression = ast.unparse(decorator)
+                    is_command = expression in {"command", "command()"} or expression.endswith(
+                        (".command", ".command()")
+                    )
+                    if not is_command:
+                        continue
+                    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+                    root = (
+                        target.value.id
+                        if isinstance(target, ast.Attribute)
+                        else getattr(target, "id", "")
+                    )
+                    if root in unknown_frameworks:
+                        reviews.add(
+                            (node.lineno, "unresolved CLI framework decorator may parse argv")
+                        )
 
     for node in ast.walk(tree):
         if (
