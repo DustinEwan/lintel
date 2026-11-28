@@ -132,13 +132,53 @@ pipeline is described next in
 
 ## Semantic scenarios and decision model
 
-Default `lintel check` runs deterministic checks plus the semantic/model stage
-and emits proposed decisions. Proposals are advisory: a `compliant` proposal
-does not suppress a finding until `lintel review` accepts it; `violating` and
-`needs-human-review` keep the finding visible. Hooks and CI use
-`lintel check --stages deterministic` so they need no API key or network call.
-Uncertainty fails closed, and the model cannot edit source, config, policy, or
-the lock.
+[SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md) catalogs the constructs that
+produce `semantic_review`. This section shows what happens to one of those
+findings.
+
+### How a decision is made
+
+1. `lintel check` extracts facts, runs deterministic rules, and gathers the
+   `semantic_review` findings.
+2. For each finding, Lintel builds one typed choice question keyed by
+   `<answer_key>:<fingerprint>`. The state contains the rule, module, source,
+   line, reason, a bounded source excerpt, and relevant policy context—not
+   credentials or raw decision-model settings.
+3. The configured Decisions API returns a choice and confidence, optionally
+   with a rationale. Lintel normalizes decision vocabulary, validates the
+   answer, derives a bounded rationale when omitted, and downgrades confidence
+   below `min_confidence` to `needs-human-review`. Missing keys, provider
+   errors, and malformed answers fail closed.
+4. The result is a proposal. `lintel check` reports it beside the still-open
+   finding; no baseline or lock is written.
+
+For the rebound alias from the previous section, an abbreviated run looks like:
+
+```text
+$ lintel check
+semantic_review: semantic review: unresolved alias 's' may expose boundary state (adapters/sample.py:3)
+proposal: <fingerprint>: compliant (0.91) liquid/d1.2 choice=compliant confidence=0.9100 rationale=...
+```
+
+The model is proposing that `s` is harmless here. Lintel does not accept that
+guess. A human reviews the fingerprint and commits the decision:
+
+```sh
+lintel review <fingerprint> --decision compliant --reason "factory returns a mock in this adapter"
+```
+
+`lintel review` copies the proposal's confidence, model, schema version,
+evidence hash, and state hash into the recorded decision, adds the finding to
+the accepted baseline, and updates `lintel.lock`. The exception stays live only
+while the fingerprint still matches; changing the code makes it `baseline_stale`.
+Rejecting a proposal records the audit entry but leaves the finding blocking.
+
+The model cannot edit source, config, policy, facts, or the lock. Hooks, CI,
+`check_self.py`, and `accept-baseline` use `--stages deterministic`, so the
+provider is never called there. The full request/response contract is in
+[docs/semantic-decisions.md](docs/semantic-decisions.md).
+
+Configuration:
 
 ```toml
 [semantic_decision]
