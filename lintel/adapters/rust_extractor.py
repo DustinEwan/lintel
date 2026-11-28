@@ -8,9 +8,9 @@ import tomllib
 from lintel.adapters.extract_common import iter_files, rel, write_json
 
 VISIBILITY_RE = r"(?:pub(?:\s*\((?:crate|self|super|in\s+[^)]+)\))?\s+)?"
-USE_RE = re.compile(r"(?m)^\s*" + VISIBILITY_RE + r"use\s+([^;]+);")
-USE_START_RE = re.compile(r"(?m)^\s*(?:pub(?:\s*\([^)]*\))?\s+)?use\b")
-ANY_PUB_USE_RE = re.compile(r"(?m)^\s*pub\b[^\n;]*\buse\b")
+USE_RE = re.compile(r"(?m)^[ \t]*" + VISIBILITY_RE + r"use\s+([^;]+);")
+USE_START_RE = re.compile(r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?\s+)?use\b")
+ANY_PUB_USE_RE = re.compile(r"(?m)^[ \t]*pub\b[^\n;]*\buse\b")
 EXTERN_CRATE_RE = re.compile(r"(?m)^\s*extern\s+crate\s+([A-Za-z_][A-Za-z0-9_]*)\s*;")
 UNSUPPORTED_RUST = [
     (re.compile(r"\binclude!\s*\("), "include! can inject dependencies"),

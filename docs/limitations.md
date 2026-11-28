@@ -14,18 +14,18 @@ These limits remain true, but Lintel fails closed or provides a reviewed path in
 | Limit | Mitigation | Residual behavior |
 | --- | --- | --- |
 | Unsupported syntax or language | Required `[analysis] source_suffixes` plus registered analyzers | `unparsed_source`; non-baselineable |
-| Unparseable Python source | Python `ast` analyzer records parse errors | `unparsed_source` with source and line |
-| Unrecognized Rust visibility forms, `macro_rules!`, and non-literal `include!`/`#[path]` | Python scanner reports them explicitly | `unparsed_source` |
-| Rust literal `#[path]` and `include!` | Python scanner resolves literal module redirects and include chains | `macro_rules!` and non-literal paths remain unparsed |
-| Rust workspace roots | Native extractor refuses to attribute all members to one package | `unparsed_source` |
-| Build-tagged Go files | Python scanner evaluates `//go:build` and `// +build` against host `GOOS`/`GOARCH` and excludes fully evaluated inactive files | Indeterminate constraints remain `unparsed_source` |
-| Multi-line TypeScript `from` clauses | Python scanner now joins multi-line import/export clauses before scanning (PR #4); native extractor also handles them | Non-literal dynamic dependencies remain unparsed |
-| Toolchain-backed extraction unavailable | Python scanners are dependency-free and are the installed default | Native extractors remain source-checkout tools requiring Rust, Go, or Node/TypeScript |
+| Unparseable Python source | Tree-sitter Python analyzer records syntax errors | `unparsed_source` with source and line |
+| Unrecognized Rust visibility forms, `macro_rules!`, and non-literal `include!`/`#[path]` | Rust source graph contributor reports them explicitly | `unparsed_source` |
+| Rust literal `#[path]` and `include!` | Rust source graph contributor resolves literal module redirects and include chains | `macro_rules!` and non-literal paths remain unparsed |
+| Rust workspace roots | Workspace roots require per-package extraction | `unparsed_source` |
+| Build-tagged Go files | Go source graph contributor evaluates `//go:build` and `// +build` against host `GOOS`/`GOARCH` and excludes fully evaluated inactive files | Indeterminate constraints remain `unparsed_source` |
+| Multi-line TypeScript `from` clauses | Tree-sitter TypeScript analyzer parses multi-line import/export clauses | Non-literal dynamic dependencies remain unparsed |
+| Toolchain-backed extraction unavailable | Fact collection runs in process; tree-sitter has a boot-safe native fallback | Unsupported suffixes fail closed |
 | Reflection, generated code, runtime dependency injection | Detected cases become `semantic_review` with fingerprints and reasons; the decision-model checker can resolve bounded cases | Low-confidence or failed model calls remain pending |
 | SEM-01 aliased stdlib boundary access | Python analyzer canonicalizes import aliases; aliases rebound from unknown expressions emit `semantic_review` | Cross-language aliases remain unresolved |
-| SEM-07 native tokens in comments/strings | Native analyzers mask comments, strings, Rust raw/byte strings, and JavaScript regex literals | Other unusual quoting remains heuristic |
+| SEM-07 native tokens in comments/strings | Tree-sitter analyzers parse comments and strings as syntax nodes | Other unusual quoting remains heuristic |
 | SEM-05 declarative CLI idioms | Known frameworks and Rust `Parser` derives stay deterministic; unknown command/group decorators and unenumerated clap idioms emit `semantic_review` | Truly unknown DSLs remain bounded reviews |
-| SEM-04 helper laundering in Python | Python `ast` emits symbols, import bindings, and call sites; the core resolver follows uniquely resolved calls and emits `semantic_review` only for calls that may reach a locally defined concern-bearing helper | Dynamic, ambiguous, and cross-language helpers remain unresolved |
+| SEM-04 helper laundering in Python | Tree-sitter Python analyzer emits symbols, import bindings, and call sites; the core resolver follows uniquely resolved calls and emits `semantic_review` only for calls that may reach a locally defined concern-bearing helper | Dynamic, ambiguous, and cross-language helpers remain unresolved |
 | SEM-02 local re-export/rebind chains | Literal assignment chains resolve deterministically; boundary names rebound from unknown expressions emit `semantic_review`; wildcard imports from boundary modules are reviewed | Cross-language aliases remain unresolved |
 | SEM-03 literal reflection | `getattr(module, "name")` and literal `importlib.import_module(...).name` resolve to concerns | Dynamic attribute names remain `semantic_review` |
 | SEM-06 configured env-reading calls | `[analysis].env_call_patterns` installs dotted call names as `env` mechanisms | No library is assumed to read env without configuration |

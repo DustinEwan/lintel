@@ -35,12 +35,4 @@ lintel = [
   "lean-toolchain",
   "lakefile.toml",
   "lake-manifest.json",
-  "package.json",
-  "package-lock.json",
-  "adapters/extract_typescript_native.mjs",
-  "adapters/go-extractor/go.mod",
-  "adapters/go-extractor/main.go",
-  "adapters/rust-extractor/Cargo.lock",
-  "adapters/rust-extractor/Cargo.toml",
-  "adapters/rust-extractor/src/main.rs",
 ]

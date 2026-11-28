@@ -38,36 +38,21 @@ python -m pip install .
 lintel init --preset clean --output /path/to/new-project
 ```
 
-## Harness hooks
+## Fact collection
 
-Wire the generated hooks into a harness using [HARNESS_SETUP.md](../HARNESS_SETUP.md). The installed CLI uses dependency-free Python analyzers by default; native extractors are optional source-checkout tools.
-
-## Source-checkout extractors
-
-These surfaces are available from a source checkout. Language-toolchain-backed extractors are not auto-selected by the installed CLI.
+Fact collection runs in process. Tree-sitter analyzers emit normalized
+``SourceAnalysis`` facts; source graph contributors derive module and
+dependency facts from those ASTs plus project metadata. No external extractor
+binaries, Node toolchain, or Rust/Go extractor builds are required.
 
 ```sh
-python3 lintel/cli/extract_rust.py --root /path/to/project --out rust-facts.json
-python3 lintel/cli/extract_rust_native.py --root /path/to/project --out rust-native-facts.json
-python3 lintel/cli/extract_go.py --root /path/to/project --out go-facts.json
-python3 lintel/cli/extract_go_native.py --root /path/to/project --out go-native-facts.json
-python3 lintel/cli/extract_typescript.py --root /path/to/project --out ts-facts.json
-python3 lintel/cli/extract_python.py --root /path/to/project --out py-facts.json
-npm ci --prefix lintel
-python3 lintel/cli/extract_typescript_native.py --root /path/to/project --out ts-native-facts.json
-python3 lintel/cli/check_facts.py rust-facts.json --config lintel.toml
-python3 lintel/cli/check_facts.py rust-facts.json --policy tests/fixtures/policy.json
+python3 lintel/cli/check_facts.py facts.json --config lintel.toml
+python3 lintel/cli/check_facts.py facts.json --policy tests/fixtures/policy.json
 python3 lintel/cli/check_self.py
 ```
 
-| Extractor | Backend |
-| --- | --- |
-| Python | Standard-library `ast` parser; dependency-free |
-| Rust | Python scanner plus native `cargo metadata` and `syn` extractor |
-| Go | Python scanner plus native `go list -json` and `go/parser` extractor |
-| TypeScript | Python scanner plus native TypeScript compiler API extractor |
-
-Prefer native extractors when their toolchains are available in CI. Native extractor programs inside `lintel/adapters/` are build artifacts invoked by `lintel/cli` wrappers. `lintel.toml` records them under `[scopes.build_artifact]` and declares the wrapper surfaces under `[[executables]]`; their argv parsing is internal to the artifact, not the repository's public boundary.
+`lintel check` collects these facts automatically. `--facts` accepts a
+previously written normalized fact file for offline checks.
 
 ## Lean generation
 

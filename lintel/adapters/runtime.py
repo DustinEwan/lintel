@@ -3,12 +3,10 @@
 
 from dataclasses import asdict
 
-import glob
 import json
 import os
 import shutil
 import subprocess
-import tempfile
 
 from lintel.adapters import (
     agent_files,
@@ -18,6 +16,7 @@ from lintel.adapters import (
     contract_lock,
     incremental_cache,
     policy_diff,
+    source_graph,
 )
 from lintel.core import presets, review, rules
 from lintel.core.callgraph import relevant_unresolved_reviews
@@ -52,7 +51,7 @@ def load_json(path):
         return json.load(handle)
 
 
-def merge_facts(paths, contract_data=None, excluded_scopes=()):
+def merge_facts(paths, contract_data=None, excluded_scopes=(), graph_data=None):
     contract_data = contract_data or {}
     excluded = {
         item.get("path")
@@ -71,9 +70,7 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
     def keep(source):
         return source not in excluded
 
-    for path, include_prefix in paths:
-        facts = load_json(path)
-
+    def ingest(facts, include_prefix):
         def included(source):
             return keep(source) and (
                 include_prefix is None or source.startswith(include_prefix)
@@ -101,6 +98,11 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
                 continue
             key = (item["source"], item["line"], item["reason"])
             unparsed[key] = item
+
+    for path, include_prefix in paths:
+        ingest(load_json(path), include_prefix)
+    if graph_data:
+        ingest(graph_data, None)
 
     for item in contract_data.get("unparsed", []):
         if not keep(item["source"]):
@@ -253,117 +255,18 @@ class LintelRuntime:
             cached = incremental_cache.load_facts(self.root, key)
             if cached is not None:
                 return self._with_policy_diff_reviews(facts_from_dict(cached))
-        core_root = self.resolve(overrides.core_root or config.core_root)
-        adapters_root = self.resolve(
-            overrides.adapters_root or config.adapters_root
-        )
-        tool_cli = os.path.join(self.tool_root, DEFAULT_ENTRYPOINTS_ROOT)
-        rust_tool_dir = os.path.join(
-            self.tool_root, DEFAULT_ADAPTERS_ROOT, "rust-extractor"
-        )
-        go_tool_dir = os.path.join(
-            self.tool_root, DEFAULT_ADAPTERS_ROOT, "go-extractor"
-        )
-        entrypoints_root = config.entrypoints_root
-        rust_project = bool(
-            glob.glob(os.path.join(self.root, "**", "Cargo.toml"), recursive=True)
-        )
-        go_project = bool(
-            glob.glob(os.path.join(self.root, "**", "*.go"), recursive=True)
-        )
-        rust_scan_root = self.root
-        rust_marker = os.path.join(adapters_root, "rust-extractor")
-        if os.path.isdir(rust_marker):
-            rust_scan_root = rust_marker
-        go_scan_root = self.root
-        go_marker = os.path.join(adapters_root, "go-extractor")
-        if os.path.isdir(go_marker):
-            go_scan_root = go_marker
-        typescript_scan_root = self.root
-        if os.path.isfile(
-            os.path.join(adapters_root, "extract_typescript_native.mjs")
-        ):
-            typescript_scan_root = adapters_root
 
-        with tempfile.TemporaryDirectory() as directory:
-            paths = []
-
-            def output_path(name, include_prefix=None):
-                path = os.path.join(directory, name + ".json")
-                paths.append((path, include_prefix))
-                return path
-
-            self.run(
-                [
-                    "python3",
-                    os.path.join(tool_cli, "extract_python.py"),
-                    "--root",
-                    self.root,
-                    "--out",
-                    output_path("python"),
-                ]
-            )
-            self.run(
-                [
-                    "python3",
-                    os.path.join(tool_cli, "extract_typescript.py"),
-                    "--root",
-                    typescript_scan_root,
-                    "--out",
-                    output_path("typescript"),
-                ]
-            )
-            if rust_project and os.path.isfile(os.path.join(rust_tool_dir, "Cargo.toml")):
-                self.run(
-                    [
-                        "cargo",
-                        "build",
-                        "--quiet",
-                        "--manifest-path",
-                        os.path.join(rust_tool_dir, "Cargo.toml"),
-                    ]
-                )
-                self.run(
-                    [
-                        os.path.join(
-                            rust_tool_dir, "target", "debug", "rust-extractor"
-                        ),
-                        "--root",
-                        rust_scan_root,
-                        "--out",
-                        output_path("rust"),
-                    ]
-                )
-
-            if go_project and os.path.isfile(os.path.join(go_tool_dir, "main.go")):
-                go_binary = os.path.join(directory, "go-extractor")
-                self.run(
-                    [
-                        "go",
-                        "build",
-                        "-o",
-                        go_binary,
-                        os.path.join(go_tool_dir, "main.go"),
-                    ]
-                )
-                self.run(
-                    [
-                        go_binary,
-                        "--root",
-                        go_scan_root,
-                        "--out",
-                        output_path("go"),
-                    ]
-                )
-
-            contract_data = contract_facts.discover(
-                self.root, config.policy, entrypoints_root
-            )
-            data = merge_facts(paths, contract_data, config.excluded_scopes)
-            data["decisions"] = self._baseline_decision_data()
-            if self.use_cache:
-                incremental_cache.save_facts(self.root, key, data)
-            return self._with_policy_diff_reviews(facts_from_dict(data))
+        graph_data = source_graph.extract_all(self.root)
+        contract_data = contract_facts.discover(
+            self.root, config.policy, config.entrypoints_root
+        )
+        data = merge_facts(
+            (), contract_data, config.excluded_scopes, graph_data=graph_data
+        )
+        data["decisions"] = self._baseline_decision_data()
+        if self.use_cache:
+            incremental_cache.save_facts(self.root, key, data)
+        return self._with_policy_diff_reviews(facts_from_dict(data))
 
     def write_facts(self, path, facts):
         parent = os.path.dirname(os.path.abspath(path))

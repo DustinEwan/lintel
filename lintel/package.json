@@ -2,10 +2,8 @@
   "name": "lintel-extractors",
   "version": "0.1.0",
   "private": true,
-  "description": "Native TypeScript extractor for Lintel dependency facts",
-  "scripts": {
-    "extract:ts": "node adapters/extract_typescript_native.mjs"
-  },
+  "description": "Legacy TypeScript tooling metadata retained for CI compatibility",
+  "scripts": {},
   "devDependencies": {
     "typescript": "5.9.3"
   }

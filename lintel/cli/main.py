@@ -11,7 +11,6 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from lintel.adapters.runtime import LintelRuntime, SemanticDecisionError
-from lintel.adapters import lean_generator
 from lintel.core.model import (
     CheckFactsRequest,
     DEFAULT_STAGES,
@@ -197,8 +196,6 @@ def main():
     decision.add_argument("fingerprint")
     decision.add_argument("--decision", required=True, choices=review.DECISIONS)
     decision.add_argument("--reason", required=True)
-
-
 
     generate = commands.add_parser(
         "generate-lean", help="generate a finite Lean instance from facts"

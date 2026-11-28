@@ -21,73 +21,31 @@ from lintel.core.model import (
     WrapperOperation,
 )
 
-ENTRYPOINT_ONLY_IMPORTS = {"argparse", "typer", "click"}
-MECHANISM_IMPORTS = {"logging"}
-SUBPROCESS_CALLS = {"run", "call", "Popen", "check_call", "check_output"}
-
-BOUNDARY_IMPORTS = {
-    ("sys", "argv"): ("argv", "entrypoint_only"),
-    ("sys", "exit"): ("exit", "entrypoint_only"),
-    ("os", "environ"): ("env", "mechanism"),
-    ("os", "_exit"): ("exit", "entrypoint_only"),
-}
-BOUNDARY_ATTRIBUTES = {
-    "sys.argv": ("argv", "entrypoint_only"),
-    "sys.exit": ("exit", "entrypoint_only"),
-    "os.environ": ("env", "mechanism"),
-    "os._exit": ("exit", "entrypoint_only"),
-}
-REFLECTED_ATTRIBUTE_NAMES = frozenset(
-    name.rsplit(".", 1)[-1] for name in BOUNDARY_ATTRIBUTES
+from lintel.core import source_patterns as _patterns
+from lintel.core.source_patterns import (
+    AMBIGUOUS_ANNOTATIONS,
+    BOUNDARY_ATTRIBUTES,
+    BOUNDARY_IMPORT_MODULES,
+    BOUNDARY_IMPORTS,
+    CORE_PATH_PREFIXES,
+    ENTRYPOINT_ONLY_IMPORTS,
+    ENTRYPOINT_PATH_PREFIXES,
+    GOVERNED_REFLECTION_BASES,
+    INJECTED_PARAMETER_NAMES,
+    LIVE_ARGV_ANNOTATIONS,
+    LIVE_ENV_ANNOTATIONS,
+    MECHANISM_IMPORTS,
+    PLAIN_ANNOTATIONS,
+    REFLECTED_ATTRIBUTE_NAMES,
+    REVIEW_EXEMPT_PATH_PARTS,
+    SUBPROCESS_CALLS,
+    UNRESOLVED_CLI_MARKERS,
 )
-GOVERNED_REFLECTION_BASES = frozenset({"os", "sys", "os.environ"})
-BOUNDARY_IMPORT_MODULES = frozenset({"os", "sys"})
-ENTRYPOINT_PATH_PREFIXES = ("lintel/cli/", "cli/")
-UNRESOLVED_CLI_MARKERS = ("cli", "command")
-REVIEW_EXEMPT_PATH_PARTS = ("tests", "fixtures", "examples")
-INJECTED_PARAMETER_NAMES = frozenset({"args", "argv", "env"})
-CORE_PATH_PREFIXES = ("lintel/core/", "core/")
-LIVE_ENV_ANNOTATIONS = frozenset({"_Environ", "os._Environ"})
-LIVE_ARGV_ANNOTATIONS = frozenset(
-    {
-        "ArgumentParser",
-        "argparse.ArgumentParser",
-        "ModuleType",
-        "types.ModuleType",
-    }
-)
-PLAIN_ANNOTATIONS = frozenset(
-    {
-        "Any",
-        "Iterable",
-        "Literal",
-        "Mapping",
-        "MutableMapping",
-        "Namespace",
-        "Optional",
-        "Sequence",
-        "Union",
-        "bool",
-        "bytes",
-        "dict",
-        "float",
-        "frozenset",
-        "int",
-        "list",
-        "set",
-        "str",
-        "tuple",
-    }
-)
-AMBIGUOUS_ANNOTATIONS = frozenset({"Any", "object"})
-
-_configured_env_call_patterns = frozenset()
 
 
 def configure_env_call_patterns(patterns):
     """Install configured env-reading call names for default analyzers."""
-    global _configured_env_call_patterns
-    _configured_env_call_patterns = frozenset(patterns or ())
+    _patterns.configure_env_call_patterns(patterns)
 
 
 def _main_guard(tree):
@@ -741,7 +699,7 @@ class PythonSourceAnalyzer:
     @property
     def env_call_patterns(self):
         if self._env_call_patterns is None:
-            return _configured_env_call_patterns
+            return _patterns.env_call_patterns()
         return self._env_call_patterns
 
     def analyze(self, relative_path, source):

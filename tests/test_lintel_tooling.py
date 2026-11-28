@@ -422,7 +422,7 @@ class BoundaryConcernTests(unittest.TestCase):
         self.assertIn(("argv", "entrypoint_only"), concerns)
         self.assertIn(("env", "mechanism"), concerns)
 
-    def test_entrypoint_and_build_artifact_concerns_are_allowed(self):
+    def test_entrypoint_concern_is_allowed(self):
         policy = real_policy()
         facts = FactSet(
             concerns=(
@@ -430,21 +430,7 @@ class BoundaryConcernTests(unittest.TestCase):
                     "lintel.cli.check_self", "argv_parse", "entrypoint_only",
                     "lintel/cli/check_self.py", 10,
                 ),
-            ),
-            scopes=(
-                ScopeAssignment(
-                    "lintel/adapters/go-extractor/main.go", "build_artifact", "lintel/adapters/go-extractor/main.go", 30
-                ),
-            ),
-        )
-        facts = FactSet(
-            concerns=facts.concerns + (
-                BoundaryConcernUse(
-                    "main", "argv_parse", "entrypoint_only",
-                    "lintel/adapters/go-extractor/main.go", 5,
-                ),
-            ),
-            scopes=facts.scopes,
+            )
         )
         self.assertEqual(check_boundary_concerns(facts, policy), ())
 
@@ -517,18 +503,17 @@ class BoundaryConcernTests(unittest.TestCase):
         self.assertIsNone(analyzer_for_suffix(".zzz"))
 
 
-class WrapperOperationTests(unittest.TestCase):
     def test_composition_is_not_fat(self):
         policy = real_policy()
         facts = FactSet(
             wrapper_operations=(
                 WrapperOperation(
-                    "lintel.cli.extract_python", "import",
-                    "lintel.adapters.python_extractor.extract", "lintel/cli/extract_python.py", 13,
+                    "lintel.adapters.source_graph", "import",
+                    "lintel.adapters.source_graph_python.extract", "lintel/adapters/source_graph.py", 16,
                 ),
                 WrapperOperation(
-                    "lintel.cli.extract_rust_native", "subprocess",
-                    "cargo", "lintel/cli/extract_rust_native.py", 22,
+                    "lintel.adapters.runtime", "import",
+                    "lintel.adapters.source_graph", "lintel/adapters/runtime.py", 19,
                 ),
             )
         )
@@ -690,24 +675,22 @@ class IncrementalCacheTests(unittest.TestCase):
             config = runtime.load_self_config(CONFIG_PATH, True)
             calls = []
 
-            def fake_run(command, cwd=None):
-                calls.append(command)
-                out = command[command.index("--out") + 1]
-                with open(out, "w", encoding="utf-8") as handle:
-                    json.dump(
-                        {
-                            "modules": [
-                                {"name": "adapters.demo", "path": "adapters/demo.py"}
-                            ],
-                            "dependencies": [],
-                        },
-                        handle,
-                    )
-                return None
+            def fake_graph(root):
+                calls.append(root)
+                return {
+                    "version": 1,
+                    "modules": [
+                        {"name": "adapters.demo", "path": "adapters/demo.py"}
+                    ],
+                    "dependencies": [],
+                    "unparsed": [],
+                }
 
-            with patch.object(runtime, "run", side_effect=fake_run):
+            with patch.object(
+                runtime_module.source_graph, "extract_all", side_effect=fake_graph
+            ):
                 first = runtime.collect_self_facts(config, PathOverrides())
-                self.assertEqual(len(calls), 2)
+                self.assertEqual(len(calls), 1)
                 calls.clear()
                 second = runtime.collect_self_facts(config, PathOverrides())
                 self.assertEqual(calls, [])
@@ -715,7 +698,7 @@ class IncrementalCacheTests(unittest.TestCase):
                 with open(source, "w", encoding="utf-8") as handle:
                     handle.write("value = 2\n")
                 runtime.collect_self_facts(config, PathOverrides())
-                self.assertEqual(len(calls), 2)
+                self.assertEqual(len(calls), 1)
 
     def test_lean_check_cache_tracks_generated_content(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -940,7 +923,7 @@ class SelfFactPipelineTests(unittest.TestCase):
             any(item.rule == "semantic_review" for item in violations)
         )
 
-    def test_native_extractors_scan_governed_root_without_adapters_marker(self):
+    def test_source_graph_scans_governed_root_without_adapters_marker(self):
         with tempfile.TemporaryDirectory() as directory:
             for name in ("Cargo.toml", "main.go", "sample.ts"):
                 with open(os.path.join(directory, name), "w", encoding="utf-8") as handle:
@@ -952,25 +935,17 @@ class SelfFactPipelineTests(unittest.TestCase):
                 policy=real_policy(),
                 entrypoints_root="entrypoints",
             )
-            commands = []
+            roots = []
 
-            def fake_run(self, command, cwd=None):
-                commands.append(command)
-                if "--out" in command:
-                    path = command[command.index("--out") + 1]
-                    with open(path, "w", encoding="utf-8") as handle:
-                        handle.write('{"version": 1}')
-                return ""
+            def fake_graph(root):
+                roots.append(root)
+                return {"version": 1, "modules": [], "dependencies": [], "unparsed": []}
 
-            with patch.object(LintelRuntime, "run", fake_run):
+            with patch.object(
+                runtime_module.source_graph, "extract_all", side_effect=fake_graph
+            ):
                 runtime.collect_self_facts(config, PathOverrides())
-            roots = [
-                command[command.index("--root") + 1]
-                for command in commands
-                if "--root" in command
-            ]
-            self.assertEqual(roots, [directory] * len(roots))
-            self.assertTrue(roots)
+            self.assertEqual(roots, [directory])
 
     def test_accepted_semantic_finding_does_not_need_a_decision_provider(self):
         finding = Violation(
@@ -1855,5 +1830,75 @@ class StagedPipelineCliTests(unittest.TestCase):
             )
             self.assertEqual(code, 1)
             self.assertIn("semantic decision violating", output)
+
+
+class AnalyzerComparisonTests(unittest.TestCase):
+    SOURCE = (
+        "from __future__ import annotations\n"
+        "import os\n"
+        "from datetime import datetime, timezone\n"
+        "class Service:\n"
+        "    def run(self, env: os._Environ = None):\n"
+        "        value = os.environ['PRICING_CATALOG']\n"
+        "        print(value)\n"
+        "        raise SystemExit(2)\n"
+        "if __name__ == '__main__':\n"
+        "    Service().run()\n"
+    )
+
+    def _directory(self):
+        directory = tempfile.TemporaryDirectory()
+        path = os.path.join(directory.name, "service.py")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(self.SOURCE)
+        return directory, "service.py"
+
+    def test_python_tree_sitter_facts_match_default_analyzer(self):
+        import dataclasses
+        import json
+
+        from lintel.adapters.language.python_analyzer import PythonSourceAnalyzer
+        from lintel.adapters.language.tree_sitter_python import (
+            TreeSitterPythonAnalyzer,
+        )
+
+        def canonical(value):
+            if isinstance(value, tuple):
+                return sorted(
+                    (canonical(item) for item in value), key=json.dumps
+                )
+            if isinstance(value, dict):
+                return {key: canonical(item) for key, item in value.items()}
+            return value
+
+        old = PythonSourceAnalyzer().analyze("service.py", self.SOURCE)
+        new = TreeSitterPythonAnalyzer().analyze("service.py", self.SOURCE)
+        self.assertEqual(
+            canonical(dataclasses.asdict(old)), canonical(dataclasses.asdict(new))
+        )
+
+    def test_python_tree_sitter_facts_are_normalized(self):
+        from lintel.adapters.language.tree_sitter_python import (
+            TreeSitterPythonAnalyzer,
+        )
+
+        analysis = TreeSitterPythonAnalyzer().analyze("service.py", self.SOURCE)
+        self.assertIsNotNone(analysis.entrypoint)
+        self.assertTrue(
+            any(symbol.kind == "method" for symbol in analysis.symbols)
+        )
+        self.assertTrue(
+            any(
+                use.concern == "env" and use.category == "mechanism"
+                for use in analysis.concerns
+            )
+        )
+        self.assertTrue(
+            any(
+                use.concern == "exit" and use.category == "mechanism"
+                for use in analysis.concerns
+            )
+        )
+
 if __name__ == "__main__":
     unittest.main()

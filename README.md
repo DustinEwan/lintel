@@ -51,13 +51,13 @@ cd lintel && lake build
 
 CI runs both `lake build` and the Python checker pipeline on pushes and pull requests.
 
-## Extractors and checker
+## Analyzers and checker
 
-`lintel/cli/extract_*.py` are CLI entrypoints. They call the extractor libraries in `lintel/adapters/*_extractor.py`, which scan a project root and emit JSON facts:
+Tree-sitter analyzers emit normalized `SourceAnalysis` facts; source graph contributors derive module and dependency facts from those ASTs:
 
 ```mermaid
 flowchart LR
-    S["Source files"] --> X["Extractors"]
+    S["Source files"] --> X["Tree-sitter analyzers + graph contributors"]
     X --> F["Facts"]
     F --> C["Check with policy, lock, baseline"]
     C --> V["Violations and semantic review"]
@@ -265,7 +265,7 @@ lintel generate-lean --facts facts.json
 
 `--root` defaults to the current directory; set it only when running elsewhere.
 
-Full command reference, native extractors, lock/cache behavior, and implementation layout are in [docs/usage.md](docs/usage.md). Wire generated hooks into a harness with [HARNESS_SETUP.md](HARNESS_SETUP.md). The installed CLI uses dependency-free Python analyzers by default.
+Full command reference, fact collection, lock/cache behavior, and implementation layout are in [docs/usage.md](docs/usage.md). Wire generated hooks into a harness with [HARNESS_SETUP.md](HARNESS_SETUP.md). The installed CLI uses tree-sitter analyzers with a boot-safe native fallback.
 
 ## Agent and harness integration
 
@@ -352,7 +352,7 @@ allowed = ["ports", "core", "platform"]
 
 CLI flags override path values. Layer patterns and allowed edges are independent of folder names, but executable surfaces are declared explicitly in `[[executables]]`.
 
-Limits are summarized here; the status catalog is [docs/limitations.md](docs/limitations.md). Unsupported syntax fails closed as `unparsed_source`, ambiguous cases produce `semantic_review`, and native extractors extend coverage where toolchains exist. Exception mechanisms are in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); ambiguity cases are in [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md).
+Limits are summarized here; the status catalog is [docs/limitations.md](docs/limitations.md). Unsupported syntax fails closed as `unparsed_source`, ambiguous cases produce `semantic_review`, and tree-sitter analyzers cover the registered suffixes. Exception mechanisms are in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); ambiguity cases are in [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md).
 
 The fixtures under `tests/fixtures/` contain deliberate violations and are useful for smoke-testing the pipeline.
 

@@ -8,7 +8,7 @@ adapters_root = "lintel/adapters"
 entrypoints_root = "lintel/cli"
 
 [analysis]
-source_suffixes = [".py", ".go", ".rs", ".mjs", ".js", ".ts", ".tsx"]
+source_suffixes = [".py", ".go", ".rs", ".js", ".ts", ".tsx"]
 
 [semantic_decision]
 model = "liquid/d1.2"
@@ -34,14 +34,6 @@ priority = 20
 [scopes.example]
 patterns = ["examples/**"]
 priority = 10
-
-[scopes.build_artifact]
-patterns = [
-  "lintel/adapters/extract_typescript_native.mjs",
-  "lintel/adapters/go-extractor/main.go",
-  "lintel/adapters/rust-extractor/src/main.rs"
-]
-priority = 30
 
 [scope_rules]
 excluded_scopes = ["fixture", "test", "example", "generated", "vendor"]
@@ -105,12 +97,6 @@ forbidden = [
   "lintel.cli.*",
   "check_facts",
   "check_self",
-  "lintel.adapters.*_extractor",
-  "lintel.adapters.extract_*",
-  "lintel.adapters.extract_common",
-  "extract_*",
-  "rust_extractor",
-  "lintel/go-extractor",
   "lintel.adapters.runtime"
 ]
 
@@ -123,12 +109,6 @@ forbidden = [
   "lintel.cli.*",
   "check_facts",
   "check_self",
-  "lintel.adapters.*_extractor",
-  "lintel.adapters.extract_*",
-  "lintel.adapters.extract_common",
-  "extract_*",
-  "rust_extractor",
-  "lintel/go-extractor",
   "lintel.adapters.runtime"
 ]
 
@@ -194,11 +174,7 @@ patterns = [
   "lintel.cli.*",
   "lintel",
   "check_facts",
-  "check_self",
-  "extract_python",
-  "extract_go",
-  "extract_rust",
-  "extract_typescript"
+  "check_self"
 ]
 allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
 
@@ -223,10 +199,6 @@ priority = 60
 core = false
 patterns = [
   "lintel.adapters.*",
-  "extract_*",
-  "extract_typescript_native",
-  "rust_extractor",
-  "lintel/go-extractor"
 ]
 allowed = ["ports", "core", "platform", "adapters", "infrastructure", "external"]
 
@@ -250,50 +222,3 @@ owner = "entrypoints"
 name = "check_facts"
 path = "lintel/cli/check_facts.py"
 owner = "entrypoints"
-
-[[executables]]
-name = "extract_python"
-path = "lintel/cli/extract_python.py"
-owner = "entrypoints"
-
-[[executables]]
-name = "extract_go"
-path = "lintel/cli/extract_go.py"
-owner = "entrypoints"
-
-[[executables]]
-name = "extract_rust"
-path = "lintel/cli/extract_rust.py"
-owner = "entrypoints"
-
-[[executables]]
-name = "extract_typescript"
-path = "lintel/cli/extract_typescript.py"
-owner = "entrypoints"
-
-[[executables]]
-name = "extract_rust_native"
-path = "lintel/cli/extract_rust_native.py"
-owner = "entrypoints"
-
-[[executables]]
-name = "extract_go_native"
-path = "lintel/cli/extract_go_native.py"
-owner = "entrypoints"
-
-[[executables]]
-name = "extract_typescript_native"
-path = "lintel/cli/extract_typescript_native.py"
-owner = "entrypoints"
-
-[[build_artifacts]]
-source = "lintel/adapters/rust-extractor/src/main.rs"
-wrapper = "extract_rust_native"
-
-[[build_artifacts]]
-source = "lintel/adapters/go-extractor/main.go"
-wrapper = "extract_go_native"
-
-[[build_artifacts]]
-source = "lintel/adapters/extract_typescript_native.mjs"
-wrapper = "extract_typescript_native"
