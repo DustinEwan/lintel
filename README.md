@@ -84,16 +84,49 @@ flowchart LR
 
 `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core. `tests/fixtures/policy.json` is an example JSON policy covering Rust, Go, and TypeScript module names.
 
-Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); see [Semantic scenarios and decision model](#semantic-scenarios-and-decision-model) for the overview, [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md) for the detailed catalog, [docs/semantic-decisions.md](docs/semantic-decisions.md) for the model contract, and [docs/limitations.md](docs/limitations.md) for current status.
+Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md). See [Deterministic vs semantic findings](#deterministic-vs-semantic-findings) for examples, [Semantic scenarios and decision model](#semantic-scenarios-and-decision-model) for the overview, [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md) for the detailed catalog, [docs/semantic-decisions.md](docs/semantic-decisions.md) for the model contract, and [docs/limitations.md](docs/limitations.md) for current status.
 
+
+## Deterministic vs semantic findings
+
+Lintel asks two different questions. Deterministic checks settle the question from source syntax: does `core` import an adapter, is a symbol a known CLI parser, is this import forbidden? Semantic checks handle valid syntax whose intent cannot be proved from the available facts: was an alias rebound, is an unknown decorator parsing argv, does a macro body call a boundary API when expanded? Both produce findings, but only deterministic findings can be decided without judgment.
+
+A deterministic violation needs no interpretation:
+
+```python
+# core/pricing.py
+from adapters.config import load_config  # core now depends on the outside world
+```
+
+The module is in `core`, the target is in `adapters`, and the policy forbids that direction. Result: `core_outward`.
+
+The same boundary-shaped use can be ambiguous:
+
+```python
+# adapters/sample.py
+import os as s
+s = factory()       # s is rebound from an unknown expression
+value = s.environ
+```
+
+`s` started as `os`, but `factory()` could return anything. Calling this `os.environ` would be a guess; staying silent could hide an environment leak. Result: one `semantic_review` with reason `unresolved alias 's' may expose boundary state`.
+
+CLI and macro cases follow the same split:
+
+```python
+import click
+
+@click.command()
+def run(): ...
+```
+
+is a deterministic `argv_parse` finding, while `@app.group()` from an undeclared framework gets a bounded review. A real `println!` is deterministic `terminal_io`; a `println!` inside a `macro_rules!` body is reviewed at the definition, because expansion is not part of the fact set.
+
+Why a decision model: generated code routinely has rebound aliases, wrapper decorators, and macro-hidden calls. A model can read the bounded finding, policy, and facts and propose `compliant`, `violating`, or `needs-human-review` with confidence and evidence. It cannot edit source, config, policy, or the lock. Proposals stay advisory until `lintel review` records a human decision; uncertainty fails closed and the finding remains visible.
+
+That pipeline is described next in [Semantic scenarios and decision model](#semantic-scenarios-and-decision-model).
 
 ## Semantic scenarios and decision model
-
-Deterministic analyzers cover syntax-shaped facts: declared imports, literals,
-known framework calls, and build artifacts. Semantic scenarios cover valid
-syntax whose intent cannot be proved from source alone, such as rebound aliases,
-unknown CLI decorators, macro bodies, dynamic reflection, and staged policy
-changes. Ambiguous cases become `semantic_review` findings, never a silent pass.
 
 Default `lintel check` runs deterministic checks plus the semantic/model stage
 and emits proposed decisions. Proposals are advisory: a `compliant` proposal
