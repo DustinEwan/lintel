@@ -21,8 +21,6 @@ If you know Clean, Hexagonal, or Onion architecture, this is their shared depend
 
 ![Lintel inward dependency layers](docs/architecture-layers.svg)
 
-Solid arrows show source dependencies. The dashed arrow shows a call through an interface, not a source import.
-
 For agents, that turns "keep the architecture clean" into concrete commands and machine-readable findings. Architecture intent survives long sequences of autonomous edits.
 
 ## Formal Lean spec

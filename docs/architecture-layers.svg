@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 460" width="460" height="460" role="img" aria-labelledby="layers-title layers-desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 460" width="760" height="460" role="img" aria-labelledby="layers-title layers-desc">
   <title id="layers-title">Lintel inward dependency layers</title>
-  <desc id="layers-desc">Concentric rings for entrypoints, adapters, core, and ports. Solid arrows point inward for source imports; a dashed arrow shows runtime calls through a port.</desc>
+  <desc id="layers-desc">Concentric rings for entrypoints, adapters, core, and ports. Solid arrows point inward for source imports; dashed arrows show runtime calls through a port.</desc>
   <style>
     :root {
       color-scheme: light dark;
@@ -9,6 +9,7 @@
       --border: #d1d9e0;
       --accent: #0969da;
       --success: #1a7f37;
+      --surface: #ffffff;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -17,32 +18,43 @@
         --border: #3d444d;
         --accent: #4493f8;
         --success: #3fb950;
+        --surface: #0d1117;
       }
     }
+    text { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
   </style>
   <defs>
-    <marker id="lintel-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <marker id="arrow-in" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--fg)" />
+    </marker>
+    <marker id="arrow-call" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)" />
     </marker>
   </defs>
-  <circle cx="230" cy="230" r="180" fill="none" stroke="var(--border)" stroke-width="2" />
-  <circle cx="230" cy="230" r="140" fill="none" stroke="var(--muted)" stroke-width="2" />
-  <circle cx="230" cy="230" r="100" fill="none" stroke="var(--accent)" stroke-width="2" />
-  <circle cx="230" cy="230" r="60" fill="none" stroke="var(--success)" stroke-width="2" />
-  <g fill="var(--fg)" font-size="14" text-anchor="middle">
+  <circle cx="230" cy="230" r="180" fill="var(--border)" fill-opacity="0.12" stroke="var(--border)" stroke-width="1.5" />
+  <circle cx="230" cy="230" r="140" fill="var(--muted)" fill-opacity="0.10" stroke="var(--muted)" stroke-width="1.5" />
+  <circle cx="230" cy="230" r="100" fill="var(--accent)" fill-opacity="0.12" stroke="var(--accent)" stroke-width="1.5" />
+  <circle cx="230" cy="230" r="60" fill="var(--success)" fill-opacity="0.14" stroke="var(--success)" stroke-width="1.5" />
+  <g fill="var(--fg)" font-size="14" font-weight="600" text-anchor="middle" paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">
     <text x="230" y="70">Entrypoints</text>
     <text x="230" y="112">Adapters</text>
     <text x="230" y="152">Core</text>
     <text x="230" y="225">Ports</text>
   </g>
-  <g fill="var(--muted)" font-size="11" text-anchor="middle">
+  <g fill="var(--muted)" font-size="11" text-anchor="middle" paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">
     <text x="230" y="86">CLI, hooks</text>
     <text x="230" y="128">files, APIs, toolchains</text>
     <text x="230" y="168">facts, rules, use cases</text>
     <text x="230" y="243">contracts, boundary data</text>
-    <text x="90" y="271">imports point inward</text>
-    <text x="300" y="271">calls through a port</text>
   </g>
-  <path d="M 15 285 L 170 285" fill="none" stroke="var(--fg)" stroke-width="2" marker-end="url(#lintel-arrow)" />
-  <path d="M 250 285 L 350 285" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#lintel-arrow)" />
+  <path d="M 15 300 L 165 300" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow-in)" />
+  <path d="M 250 300 L 350 300" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="5 5" marker-end="url(#arrow-call)" />
+  <g font-size="12">
+    <text x="455" y="150" fill="var(--fg)" font-weight="600">Dependency direction</text>
+    <path d="M 455 180 L 525 180" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linecap="round" marker-end="url(#arrow-in)" />
+    <text x="540" y="184" fill="var(--muted)">imports point inward</text>
+    <path d="M 455 220 L 525 220" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-dasharray="5 5" marker-end="url(#arrow-call)" />
+    <text x="540" y="224" fill="var(--muted)">calls cross a port</text>
+    <text x="455" y="270" fill="var(--muted)">Core owns ports; adapters implement them.</text>
+  </g>
 </svg>
