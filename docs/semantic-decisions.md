@@ -65,25 +65,25 @@ malformed values fail closed.
 A decision below `semantic_decision.min_confidence` is downgraded to
 `needs-human-review`, which leaves the finding pending.
 
-## Audit record
+## Review record
 
-Every model decision written to `lintel.baseline.json` records:
+`lintel check` does not write model proposals to `lintel.baseline.json`. It
+returns them as advisory output, and the finding stays visible. When
+`lintel review` commits a decision, the record includes:
 
-- stable finding fingerprint;
-- rationale, supplied or derived, included in the audit reason;
-- decision and confidence;
-- schema version `2`;
-- evidence hash of the submitted state;
-- state hash of the complete request.
+- the stable finding fingerprint, rule, source, and location;
+- the human decision and reason;
+- when a proposal is available, its confidence, model, schema version `2`,
+  evidence hash, and state hash; otherwise `human`, confidence `1.0`, and
+  schema version `1`.
 
-Human decisions remain valid and are treated as confidence `1.0` records.
-`compliant` decisions add the finding to the accepted baseline, matching the
-existing `lintel review` behavior. `violating` and undecided findings remain
-visible findings.
+Only accepting decisions add an entry to the accepted baseline. Rejecting
+decisions are recorded for audit but leave the finding blocking until the code
+is fixed.
 
-Accepted entries remain in the baseline while their finding fingerprint is live.
-If the source changes and the fingerprint no longer matches, the entry becomes
-`baseline_stale`; a decision never hides that change permanently.
+Accepted entries remain in the baseline while their finding fingerprint is
+live. If the source changes and the fingerprint no longer matches, the entry
+becomes `baseline_stale`; a decision never hides that change permanently.
 
 ## Fact-first decomposition
 
