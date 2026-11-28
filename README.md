@@ -19,37 +19,7 @@ Lintel makes that rule enforceable. It extracts source facts, checks them agains
 
 If you know Clean, Hexagonal, or Onion architecture, this is their shared dependency rule; they differ mainly in vocabulary. [docs/philosophy.md](docs/philosophy.md) compares them.
 
-```svg
-<svg viewBox="0 0 460 460" width="460" height="460" role="img" aria-labelledby="layers-title layers-desc">
-  <title id="layers-title">Lintel inward dependency layers</title>
-  <desc id="layers-desc">Concentric rings for entrypoints, adapters, core, and ports. Solid arrows point inward for source imports; a dashed arrow shows runtime calls through a port.</desc>
-  <defs>
-    <marker id="lintel-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)" />
-    </marker>
-  </defs>
-  <circle cx="230" cy="230" r="180" fill="none" stroke="var(--border)" stroke-width="2" />
-  <circle cx="230" cy="230" r="140" fill="none" stroke="var(--muted)" stroke-width="2" />
-  <circle cx="230" cy="230" r="100" fill="none" stroke="var(--accent)" stroke-width="2" />
-  <circle cx="230" cy="230" r="60" fill="none" stroke="var(--success)" stroke-width="2" />
-  <g fill="var(--fg)" font-size="14" text-anchor="middle">
-    <text x="230" y="70">Entrypoints</text>
-    <text x="230" y="112">Adapters</text>
-    <text x="230" y="152">Core</text>
-    <text x="230" y="225">Ports</text>
-  </g>
-  <g fill="var(--muted)" font-size="11" text-anchor="middle">
-    <text x="230" y="86">CLI, hooks</text>
-    <text x="230" y="128">files, APIs, toolchains</text>
-    <text x="230" y="168">facts, rules, use cases</text>
-    <text x="230" y="243">contracts, boundary data</text>
-    <text x="90" y="271">imports point inward</text>
-    <text x="300" y="271">calls through a port</text>
-  </g>
-  <path d="M 15 285 L 170 285" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#lintel-arrow)" />
-  <path d="M 250 285 L 350 285" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#lintel-arrow)" />
-</svg>
-```
+![Lintel inward dependency layers](docs/architecture-layers.svg)
 
 Solid arrows show source dependencies. The dashed arrow shows a call through an interface, not a source import.
 
