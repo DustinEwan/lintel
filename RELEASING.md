@@ -46,6 +46,9 @@ Commitizen derives the version bump and changelog from Conventional Commits.
    binaries, publishes them with `SHA256SUMS` to GitHub Releases, and publishes
    `lintel-architecture` to PyPI using `PYPI_API_TOKEN`.
 
+Before the first tag, run this workflow with `workflow_dispatch` and `publish`
+unchecked to validate every build target without publishing artifacts.
+
 ## Verification
 
 After publishing artifacts:
