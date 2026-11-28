@@ -19,7 +19,7 @@ from lintel.adapters import (
     source_graph,
 )
 from lintel.core import presets, review, rules
-from lintel.core.callgraph import relevant_unresolved_reviews
+from lintel.core.graph_index import GraphIndex
 from lintel.core.checker import check, check_semantic_review
 from lintel.core.model import (
     FactSet,
@@ -384,8 +384,9 @@ class LintelRuntime:
         return list(self._baseline_data().get("decisions", ()))
 
     def semantic_review_findings(self, facts, policy):
-        reviews = facts.reviews + relevant_unresolved_reviews(facts)
-        return check_semantic_review(replace(facts, reviews=reviews), policy, ())
+        index = GraphIndex(facts)
+        reviews = facts.reviews + index.relevant_unresolved_reviews()
+        return check_semantic_review(replace(facts, reviews=reviews), policy, (), index)
 
     def live_decision_fingerprints(self, findings, decisions):
         accepting = {

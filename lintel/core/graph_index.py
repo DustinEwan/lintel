@@ -6,6 +6,7 @@ ask graph questions without rebuilding dictionaries or parser-specific loops.
 """
 
 import hashlib
+from collections import deque
 from collections.abc import Callable, Iterable
 from typing import NamedTuple
 
@@ -16,6 +17,7 @@ from .model import (
     Dependency,
     FactSet,
     ImportBinding,
+    Module,
     SemanticReview,
     Symbol,
     UnresolvedCall,
@@ -118,6 +120,9 @@ class GraphIndex:
         }
 
         self._modules = {module.name for module in facts.modules}
+        self._module_by_name: dict[str, Module] = {}
+        for module in facts.modules:
+            self._module_by_name.setdefault(module.name, module)
         self._bindings: dict[tuple[str, str], tuple[str, str]] = {}
         for item in facts.import_bindings:
             target_module = item.target_module
@@ -130,14 +135,19 @@ class GraphIndex:
                 target_symbol,
             )
 
+        by_source: dict[str, list[Symbol]] = {}
+        for symbol in facts.symbols:
+            if symbol.kind in {"function", "method"}:
+                by_source.setdefault(symbol.source, []).append(symbol)
+        self._symbols_by_source = {
+            source: tuple(values) for source, values in by_source.items()
+        }
         self._concerns_by_symbol: dict[str, BoundaryConcernUse] = {}
         for concern in facts.concerns:
             candidates = [
                 item
-                for item in facts.symbols
-                if item.source == concern.source
-                and item.kind in {"function", "method"}
-                and item.line <= concern.line <= item.end_line
+                for item in self._symbols_by_source.get(concern.source, ())
+                if item.line <= concern.line <= item.end_line
             ]
             if not candidates:
                 continue
@@ -173,7 +183,17 @@ class GraphIndex:
         for dep in facts.dependencies:
             self._outgoing.setdefault(dep.source_module, set()).add(dep.target_module)
 
-        self._build_graph()
+        self._graph_built = False
+        self._nodes: tuple[GraphNode, ...] = ()
+        self._nodes_by_id: dict[tuple[str, ...], GraphNode] = {}
+        self._edges: tuple[GraphEdge, ...] = ()
+        self._edges_by_id: dict[tuple[str, ...], GraphEdge] = {}
+        self._out_edges: dict[tuple[str, ...], list[GraphEdge]] = {}
+        self._in_edges: dict[tuple[str, ...], list[GraphEdge]] = {}
+        self._path_cache: dict[
+            tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...] | None],
+            tuple[tuple[str, ...], ...] | None,
+        ] = {}
 
     @classmethod
     def from_facts(cls, facts: FactSet) -> "GraphIndex":
@@ -182,6 +202,12 @@ class GraphIndex:
     @staticmethod
     def _dependency_order(dep: Dependency) -> tuple[int, str, str]:
         return (dep.line, dep.source, dep.source_module)
+
+    def _ensure_graph(self) -> None:
+        if self._graph_built:
+            return
+        self._build_graph()
+        self._graph_built = True
 
     def _build_graph(self) -> None:
         nodes: dict[tuple[str, ...], GraphNode] = {}
@@ -194,10 +220,10 @@ class GraphIndex:
 
         def module_id(name: object) -> tuple[str, ...]:
             text = str(name)
-            declared = next(
-                (module for module in self._facts.modules if module.name == text), None
+            declared = self._module_by_name.get(text)
+            return add_node(
+                "module", (text,), declared if declared is not None else text
             )
-            return add_node("module", (text,), declared if declared is not None else text)
 
         def symbol_id(key: str) -> tuple[str, ...]:
             return add_node("symbol", (key,), self._symbols.get(key, key))
@@ -433,15 +459,18 @@ class GraphIndex:
         return ("module", value)
 
     def nodes(self, kind: str | None = None) -> tuple[GraphNode, ...]:
+        self._ensure_graph()
         if kind is None:
             return self._nodes
         return tuple(node for node in self._nodes if node.kind == kind)
 
     def node(self, node: object) -> GraphNode | None:
+        self._ensure_graph()
         node_id = self._coerce_node(node)
         return None if node_id is None else self._nodes_by_id.get(node_id)
 
     def edges(self, kind: str | Iterable[str] | None = None) -> tuple[GraphEdge, ...]:
+        self._ensure_graph()
         selected = _kinds(kind)
         if selected is None:
             return self._edges
@@ -450,6 +479,7 @@ class GraphIndex:
     def out(
         self, node: object, kinds: str | Iterable[str] | None = None
     ) -> tuple[GraphEdge, ...]:
+        self._ensure_graph()
         node_id = self._coerce_node(node)
         selected = _kinds(kinds)
         if node_id is None:
@@ -463,6 +493,7 @@ class GraphIndex:
     def incoming_edges(
         self, node: object, kinds: str | Iterable[str] | None = None
     ) -> tuple[GraphEdge, ...]:
+        self._ensure_graph()
         node_id = self._coerce_node(node)
         selected = _kinds(kinds)
         if node_id is None:
@@ -480,15 +511,16 @@ class GraphIndex:
         reverse: bool = False,
         predicate: Callable[[GraphNode], bool] | None = None,
     ) -> tuple[GraphNode, ...]:
+        self._ensure_graph()
         start_id = self._coerce_node(start)
         selected = _kinds(kinds)
         if start_id is None or start_id not in self._nodes_by_id:
             return ()
-        queue = [start_id]
+        queue = deque([start_id])
         seen = {start_id}
         result: list[GraphNode] = []
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             adjacent = (
                 self._in_edges.get(current, ())
                 if reverse
@@ -512,17 +544,27 @@ class GraphIndex:
     def path(
         self, start: object, goal: object, kinds: str | Iterable[str] | None = None
     ) -> tuple[tuple[str, ...], ...] | None:
+        self._ensure_graph()
         start_id = self._coerce_node(start)
         goal_id = self._coerce_node(goal)
         selected = _kinds(kinds)
         if start_id is None or goal_id is None:
             return None
+        key = (
+            start_id,
+            goal_id,
+            tuple(sorted(selected)) if selected is not None else None,
+        )
+        if key in self._path_cache:
+            return self._path_cache[key]
         if start_id == goal_id:
-            return (start_id,)
+            result = (start_id,)
+            self._path_cache[key] = result
+            return result
         previous: dict[tuple[str, ...], tuple[str, ...] | None] = {start_id: None}
-        queue = [start_id]
+        queue = deque([start_id])
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             for edge in self._out_edges.get(current, ()):
                 if selected is not None and edge.kind not in selected:
                     continue
@@ -535,8 +577,11 @@ class GraphIndex:
                     while step is not None:
                         chain.append(step)
                         step = previous[step]
-                    return tuple(reversed(chain))
+                    result = tuple(reversed(chain))
+                    self._path_cache[key] = result
+                    return result
                 queue.append(edge.target_id)
+        self._path_cache[key] = None
         return None
 
     def subgraph(
@@ -544,6 +589,7 @@ class GraphIndex:
         predicate: Callable[[GraphNode | GraphEdge], bool] | None = None,
         edge_predicate: Callable[[GraphEdge], bool] | None = None,
     ) -> GraphView:
+        self._ensure_graph()
         def matches(item: GraphNode | GraphEdge) -> bool:
             if predicate is None:
                 return False
@@ -741,10 +787,7 @@ class GraphIndex:
                 target_module, target_symbol = binding
                 if target_symbol:
                     name = target_symbol
-                elif any(
-                    symbol.module == target_module and symbol.name == member
-                    for symbol in self._symbols.values()
-                ):
+                elif (target_module, member) in self._symbols_by_name:
                     name = member
                 else:
                     continue
@@ -765,6 +808,7 @@ class GraphIndex:
     def wrapper_invocations(
         self, wrapper_module: str | None = None
     ) -> tuple[GraphEdge, ...]:
+        self._ensure_graph()
         result: list[GraphEdge] = []
         for edge in self.edges("invokes"):
             if wrapper_module is None:
@@ -792,6 +836,7 @@ class GraphIndex:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def diff(self, other: "GraphIndex") -> GraphDiff:
+        self._ensure_graph()
         other_nodes = {node.id: node for node in other.nodes()}
         other_edges = {edge.id: edge for edge in other.edges()}
         self_nodes = {node.id for node in self._nodes}
@@ -813,28 +858,36 @@ class GraphIndex:
 
     def cycles(self) -> tuple[tuple[str, ...], ...]:
         color: dict[str, int] = {}
-        stack: list[str] = []
         seen: set[tuple[str, ...]] = set()
         cycles: list[tuple[str, ...]] = []
 
-        def visit(node: str) -> None:
-            color[node] = 1
-            stack.append(node)
-            for nxt in sorted(self._outgoing.get(node, ())):
-                state = color.get(nxt, 0)
+        for root in sorted(self._outgoing):
+            if color.get(root, 0) != 0:
+                continue
+            path = [root]
+            position = {root: 0}
+            stack = [iter(sorted(self._outgoing.get(root, ())))]
+            color[root] = 1
+            while stack:
+                node = path[-1]
+                try:
+                    neighbor = next(stack[-1])
+                except StopIteration:
+                    stack.pop()
+                    color[node] = 2
+                    position.pop(node, None)
+                    path.pop()
+                    continue
+                state = color.get(neighbor, 0)
                 if state == 0:
-                    visit(nxt)
+                    color[neighbor] = 1
+                    position[neighbor] = len(path)
+                    path.append(neighbor)
+                    stack.append(iter(sorted(self._outgoing.get(neighbor, ()))))
                 elif state == 1:
-                    start = stack.index(nxt) if nxt in stack else 0
-                    cycle = tuple(stack[start:] + [nxt])
+                    cycle = tuple(path[position[neighbor] :] + [neighbor])
                     if cycle not in seen:
                         seen.add(cycle)
                         cycles.append(cycle)
-            stack.pop()
-            color[node] = 2
-
-        for node in sorted(self._outgoing):
-            if color.get(node, 0) == 0:
-                visit(node)
 
         return tuple(cycles)

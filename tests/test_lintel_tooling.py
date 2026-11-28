@@ -360,6 +360,18 @@ class GraphIndexTests(unittest.TestCase):
         index = GraphIndex(facts)
         self.assertEqual(index.callers_of(helper.key), (adapter.key,))
 
+    def test_deep_cycles_do_not_recurse(self):
+        count = 1200
+        modules = tuple(Module(f"m{index}") for index in range(count))
+        dependencies = tuple(
+            Dependency(f"m{index}", f"m{(index + 1) % count}")
+            for index in range(count)
+        )
+        index = GraphIndex(FactSet(modules=modules, dependencies=dependencies))
+        cycles = index.cycles()
+        self.assertEqual(len(cycles), 1)
+        self.assertEqual(len(cycles[0]), count + 1)
+
 class GraphQueryCapabilitiesTests(unittest.TestCase):
     def _chain_facts(self):
         return FactSet(
