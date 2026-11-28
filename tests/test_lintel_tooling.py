@@ -16,13 +16,15 @@ from lintel.adapters import agent_files
 from lintel.adapters import typescript_extractor
 from lintel.adapters import rust_extractor
 from lintel.adapters import go_extractor
-from lintel.adapters import decision_model
+from lintel.adapters import contract_facts, decision_model
 from lintel.core import hooks, review
 from lintel.adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
-from lintel.adapters.runtime import LintelRuntime
+from lintel.adapters.runtime import LintelRuntime, merge_facts
+from lintel.core.callgraph import concern_symbols, resolve_calls
 from lintel.core.checker import (
     check_boundary_concerns,
     check_executables,
+    check_helper_laundering,
     check_wrapper_operations,
     check,
     module_name_from_path,
@@ -31,11 +33,15 @@ from lintel.core.checker import (
 )
 from lintel.core.model import (
     BoundaryConcernUse,
+    CallSite,
     Dependency,
     Entrypoint,
     FactSet,
+    ImportBinding,
     Module,
+    Symbol,
     facts_from_dict,
+    facts_to_dict,
     policy_from_dict,
     ScopeAssignment,
     PathOverrides,
@@ -92,6 +98,197 @@ def declared_modules(policy):
 def rules(violations):
     return {item.rule for item in violations}
 
+
+class CallGraphTests(unittest.TestCase):
+    def _helper_facts(self, callee="parse_cli", hint="name", bindings=True):
+        helper = Symbol(
+            "lintel.helpers::parse_cli#function#0",
+            "lintel.helpers",
+            "parse_cli",
+            "function",
+            "lintel/helpers.py",
+            1,
+            3,
+        )
+        adapter = Symbol(
+            "lintel.adapters.use::run#function#0",
+            "lintel.adapters.use",
+            "run",
+            "function",
+            "lintel/adapters/use.py",
+            1,
+            4,
+        )
+        facts = FactSet(
+            concerns=(
+                BoundaryConcernUse(
+                    "lintel.helpers", "argv", "entrypoint_only", "lintel/helpers.py", 2
+                ),
+            ),
+            symbols=(helper, adapter),
+            import_bindings=(
+                (
+                    ImportBinding(
+                        "lintel.adapters.use",
+                        "parse_cli",
+                        "lintel.helpers",
+                        "parse_cli",
+                        "lintel/adapters/use.py",
+                        1,
+                    ),
+                )
+                if bindings
+                else ()
+            ),
+            call_sites=(
+                CallSite(adapter.key, callee, hint, "lintel/adapters/use.py", 3),
+            ),
+        )
+        return facts, helper, adapter
+
+    def test_python_analyzer_emits_call_facts(self):
+        source = (
+            "import sys\n"
+            "\n"
+            "def parse_cli():\n"
+            "    return sys.argv[1:]\n"
+            "\n"
+            "value = parse_cli()\n"
+        )
+        analysis = PythonSourceAnalyzer().analyze("lintel/sample.py", source)
+        self.assertTrue(
+            any(
+                item.name == "parse_cli" and item.end_line == 4
+                for item in analysis.symbols
+            )
+        )
+        self.assertIn(
+            "lintel.sample::parse_cli#function", {item.key for item in analysis.symbols}
+        )
+        self.assertTrue(
+            any(
+                item.local_name == "sys" and item.target_module == "sys"
+                for item in analysis.import_bindings
+            )
+        )
+        self.assertTrue(
+            any(
+                item.callee == "parse_cli" and item.hint == "name"
+                for item in analysis.call_sites
+            )
+        )
+
+    def test_concern_uses_symbol_span_not_preceding_line(self):
+        outer = Symbol(
+            "lintel.helpers::outer#function#0",
+            "lintel.helpers",
+            "outer",
+            "function",
+            "lintel/helpers.py",
+            1,
+            5,
+        )
+        inner = Symbol(
+            "lintel.helpers::outer.inner#function#0",
+            "lintel.helpers",
+            "outer.inner",
+            "function",
+            "lintel/helpers.py",
+            2,
+            3,
+        )
+        facts = FactSet(
+            concerns=(
+                BoundaryConcernUse(
+                    "lintel.helpers", "environ", "config", "lintel/helpers.py", 4
+                ),
+            ),
+            symbols=(outer, inner),
+        )
+        self.assertEqual(set(concern_symbols(facts)), {outer.key})
+
+    def test_resolved_helper_call_is_reported(self):
+        facts, helper, adapter = self._helper_facts()
+        edges, unresolved = resolve_calls(facts)
+        self.assertEqual(
+            edges[0].callee, helper.key
+        )
+        self.assertEqual(edges[0].caller, adapter.key)
+        self.assertEqual(unresolved, ())
+        violations = check_helper_laundering(facts, real_policy())
+        self.assertTrue(any(item.rule == "adapter_cli_concern" for item in violations))
+
+    def test_unresolved_relevant_call_is_reviewed_and_noise_ignored(self):
+        relevant, _, _ = self._helper_facts(
+            callee="parse_cli", hint="name", bindings=False
+        )
+        violations = check_helper_laundering(relevant, real_policy())
+        self.assertTrue(any(item.rule == "semantic_review" for item in violations))
+
+        dynamic, _, _ = self._helper_facts(
+            callee="factory.parse_cli", hint="qualified", bindings=False
+        )
+        violations = check_helper_laundering(dynamic, real_policy())
+        self.assertFalse(any(item.rule == "semantic_review" for item in violations))
+
+        noise, _, _ = self._helper_facts(callee="unrelated", hint="name", bindings=False)
+        violations = check_helper_laundering(noise, real_policy())
+        self.assertFalse(any(item.rule == "semantic_review" for item in violations))
+
+    def test_call_facts_survive_serialization(self):
+        facts, _, _ = self._helper_facts()
+        roundtrip = facts_from_dict(facts_to_dict(facts))
+        self.assertEqual(roundtrip.symbols, facts.symbols)
+        self.assertEqual(roundtrip.import_bindings, facts.import_bindings)
+        self.assertEqual(roundtrip.call_sites, facts.call_sites)
+
+    def test_unresolved_review_respects_explicit_decision(self):
+        facts, _, _ = self._helper_facts(callee="parse_cli", hint="name", bindings=False)
+        finding = next(
+            item
+            for item in check_helper_laundering(facts, real_policy())
+            if item.rule == "semantic_review"
+        )
+        decision = SemanticDecision(
+            violation_fingerprint(finding), "compliant", "reviewed", 0.99
+        )
+        violations = check_helper_laundering(facts, real_policy(), (decision,))
+        self.assertFalse(any(item.rule == "semantic_review" for item in violations))
+
+    def test_contract_pipeline_detects_helper_laundering(self):
+        policy = real_policy()
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "lintel", "adapters"))
+            with open(os.path.join(root, "lintel", "helpers.py"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    "import sys\n"
+                    "\n"
+                    "def parse_cli():\n"
+                    "    return sys.argv[1:]\n"
+                )
+            with open(
+                os.path.join(root, "lintel", "adapters", "use.py"), "w", encoding="utf-8"
+            ) as handle:
+                handle.write(
+                    "from lintel.helpers import parse_cli as cli_parser\n"
+                    "\n"
+                    "settings = cli_parser()\n"
+                    "other = parse_cli()\n"
+                )
+            contract_data = contract_facts.discover(root, policy, "lintel/adapters")
+            facts = facts_from_dict(merge_facts([], contract_data))
+            violations = check(facts, policy)
+            self.assertTrue(
+                any(
+                    item.rule == "adapter_cli_concern"
+                    and "use.py" in item.fields.get("location", "")
+                    for item in violations
+                )
+            )
+            findings = LintelRuntime(root).semantic_review_findings(facts, policy)
+            self.assertTrue(
+                any("parse_cli" in item.fields.get("reason", "") for item in findings)
+            )
 
 class ConfigValidationTests(unittest.TestCase):
     def test_unknown_key_and_bad_reference(self):

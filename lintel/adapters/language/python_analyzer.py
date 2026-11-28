@@ -5,9 +5,12 @@ import ast
 from lintel.core.checker import module_name_from_path
 from lintel.core.model import (
     BoundaryConcernUse,
+    CallSite,
     Entrypoint,
+    ImportBinding,
     SourceAnalysis,
     SemanticReview,
+    Symbol,
     UnparsedSource,
     WrapperOperation,
 )
@@ -170,6 +173,135 @@ def _semantic_reviews(tree, module, relative_path):
     )
 
 
+def _parents(tree):
+    return {
+        child: parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+
+
+def _relative_name(node, parents):
+    parts = []
+    current = node
+    while current is not None:
+        if isinstance(current, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            parts.append(current.name)
+        current = parents.get(current)
+    return ".".join(reversed(parts))
+
+
+def _enclosing_function(node, parents):
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return current
+        current = parents.get(current)
+    return None
+
+
+def _call_facts(tree, module, relative_path):
+    parents = _parents(tree)
+    symbols = []
+    bindings = []
+    sites = []
+    symbol_by_node = {}
+    definitions = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        name = _relative_name(node, parents)
+        if isinstance(node, ast.ClassDef):
+            kind = "class"
+        elif isinstance(parents.get(node), ast.ClassDef):
+            kind = "method"
+        else:
+            kind = "function"
+        definitions.append((node, name, kind))
+
+    base_counts = {}
+    for _, name, kind in definitions:
+        base = f"{module}::{name}#{kind}"
+        base_counts[base] = base_counts.get(base, 0) + 1
+    used = {}
+    for node, name, kind in definitions:
+        base = f"{module}::{name}#{kind}"
+        index = used.get(base, 0)
+        used[base] = index + 1
+        key = base if base_counts[base] == 1 else f"{base}#{index}"
+        symbol = Symbol(
+            key,
+            module,
+            name,
+            kind,
+            relative_path,
+            node.lineno,
+            getattr(node, "end_lineno", None) or node.lineno,
+        )
+        symbols.append(symbol)
+        symbol_by_node[id(node)] = symbol
+
+    module_end = max((item.end_line for item in symbols), default=1)
+    module_symbol = Symbol(
+        f"{module}::<module>#module#0",
+        module,
+        "<module>",
+        "module",
+        relative_path,
+        1,
+        module_end,
+    )
+    symbols.append(module_symbol)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".", 1)[0]
+                bindings.append(
+                    ImportBinding(
+                        module, alias.asname or root, root, "", relative_path, node.lineno
+                    )
+                )
+        elif isinstance(node, ast.ImportFrom):
+            target = node.module or ""
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                bindings.append(
+                    ImportBinding(
+                        module,
+                        alias.asname or alias.name,
+                        target,
+                        alias.name,
+                        relative_path,
+                        node.lineno,
+                    )
+                )
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            callee = func.id
+            hint = "name"
+        elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            callee = f"{func.value.id}.{func.attr}"
+            hint = "qualified"
+        else:
+            continue
+        caller_node = _enclosing_function(node, parents)
+        caller = (
+            symbol_by_node[id(caller_node)].key
+            if caller_node is not None and id(caller_node) in symbol_by_node
+            else module_symbol.key
+        )
+        sites.append(CallSite(caller, callee, hint, relative_path, node.lineno))
+
+    return tuple(symbols), tuple(bindings), tuple(sites)
+
+
 class PythonSourceAnalyzer:
     suffixes = (".py",)
 
@@ -202,9 +334,13 @@ class PythonSourceAnalyzer:
             )
             if operation_module == module
         )
+        symbols, bindings, sites = _call_facts(tree, module, relative_path)
         return SourceAnalysis(
             entrypoint=entrypoint,
             concerns=concerns,
             wrapper_operations=operations,
             reviews=_semantic_reviews(tree, module, relative_path),
+            symbols=symbols,
+            import_bindings=bindings,
+            call_sites=sites,
         )

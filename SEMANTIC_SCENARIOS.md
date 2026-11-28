@@ -94,8 +94,17 @@ Why semantic: `argparse` is imported in one place but used as an entrypoint
 concern from another. The judge must follow the call relationship and decide
 which module owns the concern.
 
+Current behavior: Python `ast` facts emit symbols, import bindings, and call
+sites; the core resolver follows uniquely resolved local calls through helper
+chains and applies the normal boundary rule at each caller. Concerns are
+attributed by symbol span, so a concern after a nested function belongs to the
+outer function. An unresolved call is reported as `semantic_review` only when
+its name matches a locally defined concern-bearing helper; unrelated external
+or dynamic calls stay silent.
+
 Expected judgment: attribute the concern to the module that invokes the helper
-unless ownership is explicitly declared.
+unless ownership is explicitly declared. Resolved Python cases are deterministic;
+unresolved or cross-language cases still need a decision or human review.
 
 ### SEM-05 Declarative framework CLIs
 

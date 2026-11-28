@@ -19,6 +19,7 @@ from lintel.adapters import (
     incremental_cache,
 )
 from lintel.core import presets, review, rules
+from lintel.core.callgraph import relevant_unresolved_reviews
 from lintel.core.checker import check, check_semantic_review
 from lintel.core.model import (
     FactSet,
@@ -28,6 +29,7 @@ from lintel.core.model import (
     facts_to_dict,
     PathOverrides,
     policy_from_dict,
+    replace,
     violation_to_dict,
 )
 
@@ -59,6 +61,9 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
     unparsed = {}
     reviews = {}
     decisions = {}
+    symbols = {}
+    import_bindings = {}
+    call_sites = {}
 
     def keep(source):
         return source not in excluded
@@ -109,7 +114,20 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
         fingerprint = item.get("fingerprint")
         if fingerprint:
             decisions[fingerprint] = item
-
+    for item in contract_data.get("symbols", []):
+        if not keep(item["source"]):
+            continue
+        symbols[(item["key"], item["source"])] = item
+    for item in contract_data.get("import_bindings", []):
+        if not keep(item["source"]):
+            continue
+        key = (item["module"], item["local_name"], item["source"], item["line"])
+        import_bindings[key] = item
+    for item in contract_data.get("call_sites", []):
+        if not keep(item["source"]):
+            continue
+        key = (item["caller"], item["callee"], item["source"], item["line"])
+        call_sites[key] = item
     return {
         "version": 1,
         "language": "self",
@@ -141,6 +159,18 @@ def merge_facts(paths, contract_data=None, excluded_scopes=()):
         "wrapper_operations": sorted(
             contract_data.get("wrapper_operations", []),
             key=lambda item: (item["source"], item["line"], item["operation"]),
+        ),
+        "symbols": sorted(
+            symbols.values(),
+            key=lambda item: (item["module"], item["name"], item["line"]),
+        ),
+        "import_bindings": sorted(
+            import_bindings.values(),
+            key=lambda item: (item["module"], item["local_name"], item["line"]),
+        ),
+        "call_sites": sorted(
+            call_sites.values(),
+            key=lambda item: (item["source"], item["line"], item["callee"]),
         ),
     }
 
@@ -413,7 +443,7 @@ class LintelRuntime:
         if facts is not None and policy is not None and fingerprints:
             sources.extend(
                 item.fields["source"]
-                for item in check_semantic_review(facts, policy)
+                for item in self.semantic_review_findings(facts, policy)
                 if violation_fingerprint(item) in fingerprints
                 and item.fields.get("source")
             )
@@ -429,7 +459,8 @@ class LintelRuntime:
         return list(self._baseline_data().get("decisions", ()))
 
     def semantic_review_findings(self, facts, policy):
-        return check_semantic_review(facts, policy, ())
+        reviews = facts.reviews + relevant_unresolved_reviews(facts)
+        return check_semantic_review(replace(facts, reviews=reviews), policy, ())
 
     def live_decision_fingerprints(self, findings, decisions):
         accepting = {

@@ -80,12 +80,63 @@ class WrapperOperation:
 
 
 @dataclass(frozen=True)
+class Symbol:
+    key: str
+    module: str
+    name: str
+    kind: str
+    source: str
+    line: int
+    end_line: int
+
+
+@dataclass(frozen=True)
+class ImportBinding:
+    module: str
+    local_name: str
+    target_module: str
+    target_symbol: str
+    source: str
+    line: int
+
+
+@dataclass(frozen=True)
+class CallSite:
+    caller: str
+    callee: str
+    hint: str
+    source: str
+    line: int
+
+
+@dataclass(frozen=True)
+class CallEdge:
+    caller: str
+    callee: str
+    provenance: str
+    source: str
+    line: int
+
+
+@dataclass(frozen=True)
+class UnresolvedCall:
+    caller: str
+    name: str
+    reason: str
+    source: str
+    line: int
+
+
+@dataclass(frozen=True)
 class SourceAnalysis:
     entrypoint: Entrypoint | None = None
     concerns: tuple[BoundaryConcernUse, ...] = ()
     wrapper_operations: tuple[WrapperOperation, ...] = ()
     unparsed: tuple[UnparsedSource, ...] = ()
     reviews: tuple[SemanticReview, ...] = ()
+    symbols: tuple[Symbol, ...] = ()
+    import_bindings: tuple[ImportBinding, ...] = ()
+    call_sites: tuple[CallSite, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -112,6 +163,9 @@ class FactSet:
     wrapper_operations: tuple[WrapperOperation, ...] = ()
     reviews: tuple[SemanticReview, ...] = ()
     decisions: tuple[SemanticDecision, ...] = ()
+    symbols: tuple[Symbol, ...] = ()
+    import_bindings: tuple[ImportBinding, ...] = ()
+    call_sites: tuple[CallSite, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -267,6 +321,39 @@ def facts_to_dict(facts):
             }
             for item in facts.wrapper_operations
         ],
+        "symbols": [
+            {
+                "key": item.key,
+                "module": item.module,
+                "name": item.name,
+                "kind": item.kind,
+                "source": item.source,
+                "line": item.line,
+                "end_line": item.end_line,
+            }
+            for item in facts.symbols
+        ],
+        "import_bindings": [
+            {
+                "module": item.module,
+                "local_name": item.local_name,
+                "target_module": item.target_module,
+                "target_symbol": item.target_symbol,
+                "source": item.source,
+                "line": item.line,
+            }
+            for item in facts.import_bindings
+        ],
+        "call_sites": [
+            {
+                "caller": item.caller,
+                "callee": item.callee,
+                "hint": item.hint,
+                "source": item.source,
+                "line": item.line,
+            }
+            for item in facts.call_sites
+        ],
     }
 
 
@@ -353,6 +440,39 @@ def facts_from_dict(data):
                 int(item.get("line") or 0),
             )
             for item in data.get("wrapper_operations", [])
+        ),
+        symbols=tuple(
+            Symbol(
+                item.get("key", ""),
+                item.get("module", ""),
+                item.get("name", ""),
+                item.get("kind", ""),
+                item.get("source", ""),
+                int(item.get("line") or 0),
+                int(item.get("end_line") or item.get("line") or 0),
+            )
+            for item in data.get("symbols", [])
+        ),
+        import_bindings=tuple(
+            ImportBinding(
+                item.get("module", ""),
+                item.get("local_name", ""),
+                item.get("target_module", ""),
+                item.get("target_symbol", ""),
+                item.get("source", ""),
+                int(item.get("line") or 0),
+            )
+            for item in data.get("import_bindings", [])
+        ),
+        call_sites=tuple(
+            CallSite(
+                item.get("caller", ""),
+                item.get("callee", ""),
+                item.get("hint", ""),
+                item.get("source", ""),
+                int(item.get("line") or 0),
+            )
+            for item in data.get("call_sites", [])
         ),
     )
 

@@ -2,7 +2,8 @@ from fnmatch import fnmatchcase
 from posixpath import splitext
 
 from . import review
-from .model import Region, Violation
+from .callgraph import concern_symbols, relevant_unresolved_reviews, resolve_calls
+from .model import BoundaryConcernUse, Region, Violation, replace
 from .ratchet import violation_fingerprint
 from .rules import rule_spec
 
@@ -485,6 +486,53 @@ def check_wrapper_operations(facts, policy):
     return tuple(violations)
 
 
+MAX_HELPER_CALL_DEPTH = 4
+
+
+def check_helper_laundering(facts, policy, decisions=()):
+    symbols = {item.key: item for item in facts.symbols}
+    edges, _ = resolve_calls(facts)
+
+    frontier = concern_symbols(facts)
+
+    if not frontier:
+        return ()
+
+    synthetic = []
+    seen = set(frontier)
+    for _ in range(MAX_HELPER_CALL_DEPTH):
+        next_frontier = {}
+        for edge in edges:
+            concern = frontier.get(edge.callee)
+            if concern is None or edge.caller in seen or edge.caller not in symbols:
+                continue
+            seen.add(edge.caller)
+            caller = symbols[edge.caller]
+            synthetic.append(
+                BoundaryConcernUse(
+                    caller.module,
+                    concern.concern,
+                    concern.category,
+                    edge.source,
+                    edge.line,
+                )
+            )
+            next_frontier[edge.caller] = concern
+        frontier = next_frontier
+        if not frontier:
+            break
+
+    result = list(
+        check_boundary_concerns(replace(facts, concerns=tuple(synthetic)), policy)
+    )
+    unresolved = relevant_unresolved_reviews(facts)
+    if unresolved:
+        result.extend(
+            check_semantic_review(replace(facts, reviews=unresolved), policy, decisions)
+        )
+    return tuple(result)
+
+
 def check(facts, policy, decisions=()):
     result = []
     result.extend(check_edges(facts, policy))
@@ -493,6 +541,7 @@ def check(facts, policy, decisions=()):
     result.extend(check_executables(facts, policy))
     result.extend(check_scopes(facts, policy))
     result.extend(check_boundary_concerns(facts, policy))
+    result.extend(check_helper_laundering(facts, policy, decisions))
     result.extend(check_semantic_review(facts, policy, decisions))
     result.extend(check_use_cases(facts, policy))
     result.extend(check_wrapper_operations(facts, policy))

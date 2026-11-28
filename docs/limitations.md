@@ -25,11 +25,12 @@ These limits remain true, but Lintel fails closed or provides a reviewed path in
 | Aliased stdlib boundary access | Python analyzer canonicalizes import aliases before concern matching | Unresolvable aliases remain undetected |
 | Native tokens in comments/strings | Native analyzers mask comments and strings before token matching | Regex literals and unusual quoting remain heuristic |
 | Declarative CLI idioms | Rust `#[derive(...Parser...)]` and typer/click-gated `.command()` decorators are flagged as `argv_parse` | Unenumerated framework idioms remain undetected |
+| SEM-04 helper laundering in Python | Python `ast` emits symbols, import bindings, and call sites; the core resolver follows uniquely resolved calls and emits `semantic_review` only for calls that may reach a locally defined concern-bearing helper | Dynamic, ambiguous, and cross-language helpers remain unresolved |
 
-The remaining scenarios in `SEMANTIC_SCENARIOS.md` need call-graph,
-library-metadata, dependency-injection, transitive-dependency, or combined-diff
-analysis. They are not yet flagged automatically; unresolved cases still fail
-closed through `unparsed_source` or remain documentation-only.
+The remaining scenarios in `SEMANTIC_SCENARIOS.md` still need library-metadata,
+dependency-injection, transitive-dependency, or combined-diff analysis. SEM-04
+is covered only for uniquely resolved Python calls; unresolved cases still fail
+closed through `unparsed_source` or remain pending `semantic_review`.
 
 ## 2. Intentional formal-model trust boundaries
 

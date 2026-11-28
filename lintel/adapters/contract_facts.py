@@ -38,6 +38,9 @@ def discover(root, policy, entrypoints_root):
     wrapper_operations = []
     unparsed = []
     reviews = []
+    symbols = []
+    import_bindings = []
+    call_sites = []
     entrypoint_prefix = entrypoints_root.rstrip("/") + "/"
 
     for path in _walk(root):
@@ -69,6 +72,9 @@ def discover(root, policy, entrypoints_root):
             )
         unparsed.extend(asdict(item) for item in analysis.unparsed)
         reviews.extend(asdict(item) for item in analysis.reviews)
+        symbols.extend(asdict(item) for item in analysis.symbols)
+        import_bindings.extend(asdict(item) for item in analysis.import_bindings)
+        call_sites.extend(asdict(item) for item in analysis.call_sites)
 
     assignments = []
     for path in _walk(root):
@@ -94,4 +100,7 @@ def discover(root, policy, entrypoints_root):
         "scopes": assignments,
         "unparsed": unparsed,
         "reviews": reviews,
+        "symbols": symbols,
+        "import_bindings": import_bindings,
+        "call_sites": call_sites,
     }

@@ -18,6 +18,7 @@ CHECKER_ARTIFACTS = (
     "package-lock.json",
     "core/model.py",
     "core/checker.py",
+    "core/callgraph.py",
     "core/rules.py",
     "core/ratchet.py",
     "core/ports.py",
