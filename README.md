@@ -65,6 +65,27 @@ flowchart LR
 - `modules`: `{name, path, package?}` entries.
 - `dependencies`: `{from, to, kind, source, line}` entries.
 
+For the import under **Why**, the fact set carries an edge, not a judgment:
+
+```json
+{
+  "modules": [
+    {"name": "lintel.core.pricing", "path": "core/pricing.py"}
+  ],
+  "dependencies": [
+    {
+      "from": "lintel.core.pricing",
+      "to": "lintel.adapters.config",
+      "kind": "import",
+      "source": "core/pricing.py",
+      "line": 2
+    }
+  ]
+}
+```
+
+The `core_outward` rule compares that edge with `[layers.core].allowed`.
+
 | Finding | Meaning |
 | --- | --- |
 | `core_outward` | A core module depends on a non-core module. |
@@ -84,7 +105,12 @@ flowchart LR
 
 `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core. `tests/fixtures/policy.json` is an example JSON policy covering Rust, Go, and TypeScript module names.
 
-Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md). See [Deterministic vs semantic findings](#deterministic-vs-semantic-findings) for examples, [Semantic scenarios and decision model](#semantic-scenarios-and-decision-model) for the overview, [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md) for the detailed catalog, [docs/semantic-decisions.md](docs/semantic-decisions.md) for the model contract, and [docs/limitations.md](docs/limitations.md) for current status.
+Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md). See
+[Deterministic vs semantic findings](#deterministic-vs-semantic-findings) for
+examples, [Semantic scenarios and decision model](#semantic-scenarios-and-decision-model)
+for the overview, [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md) for the
+detailed catalog, [docs/semantic-decisions.md](docs/semantic-decisions.md) for
+the model contract, and [docs/limitations.md](docs/limitations.md) for status.
 
 ## Deterministic vs semantic findings
 
@@ -95,15 +121,9 @@ checks ask the second when facts cannot prove intent, such as a rebound alias
 or an undeclared decorator. Both produce findings, but only deterministic
 findings can be decided without judgment.
 
-A deterministic violation needs no interpretation:
-
-```python
-# core/pricing.py
-from adapters.config import load_config  # core now depends on the outside world
-```
-
-The module is in `core`, the target is in `adapters`, and the policy forbids
-that direction. Result: `core_outward`.
+The import under **Why** is deterministic: the module is in `core`, the target
+is in `adapters`, and `[layers.core].allowed` permits only `ports`, `core`, and
+`platform`. Result: `core_outward`.
 
 The same boundary-shaped use can be ambiguous:
 
@@ -119,16 +139,9 @@ value = s.environ
 Result: one `semantic_review` with reason
 `unresolved alias 's' may expose boundary state`.
 
-Generated code routinely has rebound aliases, wrapper decorators, and
-macro-hidden calls. A model can read the bounded finding, policy, and facts
-and propose `compliant`, `violating`, or `needs-human-review` with confidence
-and evidence. It cannot edit source, config, policy, or the lock. Proposals
-stay advisory until `lintel review` records a human decision; uncertainty
-fails closed and the finding remains visible.
-
-[SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md) catalogs the full set. The
-pipeline is described next in
-[Semantic scenarios and decision model](#semantic-scenarios-and-decision-model).
+These are the cases the decision model handles.
+[SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md) catalogs the full set; the next
+section walks through one.
 
 ## Semantic scenarios and decision model
 
@@ -267,7 +280,20 @@ lintel hook <session-start|post-edit|stop|review-request>
 | `stop` | Final check before completion. | Yes when findings remain |
 | `review-request` | List available semantic review decisions. | No |
 
-It prints JSON with `block`, `context`, `findings`, and `commands`. Findings carry stable fingerprints. `HARNESS_SETUP.md` shows hook wiring for Claude Code, OpenCode, Pi, and a generic shell fallback.
+It prints JSON with `block`, `context`, `findings`, and `commands`. Findings
+carry stable fingerprints. `HARNESS_SETUP.md` shows hook wiring for Claude
+Code, OpenCode, Pi, and a generic shell fallback.
+
+Abbreviated hook output:
+
+```json
+{
+  "block": true,
+  "context": "...",
+  "findings": [{"rule": "core_outward", "location": "core/pricing.py:2"}],
+  "commands": ["lintel check --format json"]
+}
+```
 
 Semantic decisions are explicit:
 
@@ -281,9 +307,21 @@ lintel review <fingerprint> --decision compliant --reason "port is intentionally
 | `violating` | Leaves the finding pending. |
 | `needs-human-review` | Leaves the finding pending. |
 
-Every decision requires a reason and updates the baseline and lock through a reviewable diff.
+Every decision requires a reason and updates the baseline and lock through a
+reviewable diff.
 
-Dogfooding: `python3 lintel/cli/check_self.py` parses CLI arguments, builds the runtime adapter, and calls the self-check use case. The use case asks ports for config, facts, and checking; `lintel/adapters/runtime.py` performs extraction, merging, and file I/O behind those ports. Fixtures under `tests/fixtures/` are excluded because they deliberately contain violations. The check needs Python, Rust, and Go toolchains; the TypeScript source is scanned by the Python scanner.
+Dogfooding runs the same check on this repo:
+
+```sh
+python3 lintel/cli/check_self.py
+```
+
+It parses CLI arguments, builds the runtime adapter, and calls the self-check
+use case through ports. `runtime.py` handles extraction, merging, and file I/O;
+fixtures under `tests/fixtures/` are excluded because they deliberately contain
+violations. The check needs Python, Rust, and Go toolchains; TypeScript is
+scanned by the Python scanner.
+
 Dogfood configuration and policy live in `lintel.toml` at the repo root:
 
 ```toml
