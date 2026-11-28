@@ -11,6 +11,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from lintel.adapters.runtime import LintelRuntime, SemanticDecisionError
+from lintel.adapters import lean_generator
 from lintel.adapters.diagnostics import render_text
 from lintel.core.model import (
     CheckFactsRequest,

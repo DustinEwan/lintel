@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+exec cz check --allow-abort --commit-msg-file "$1"

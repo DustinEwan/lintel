@@ -6,6 +6,19 @@ build-backend = "setuptools.build_meta"
 name = "lintel"
 version = "0.1.0"
 description = "Architecture governance for agentic codebases"
+authors = [{ name = "Dustin Ewan" }]
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+keywords = ["architecture", "cli", "governance", "static-analysis"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Quality Assurance",
+]
 readme = "README.md"
 dependencies = [
   "tree_sitter==0.27.0",
@@ -14,6 +27,14 @@ dependencies = [
   "tree_sitter_rust==0.24.2",
   "tree_sitter_typescript==0.23.2",
 ]
+
+[project.optional-dependencies]
+dev = ["commitizen==4.20.1"]
+
+[project.urls]
+Homepage = "https://github.com/DustinEwan/lintel"
+Repository = "https://github.com/DustinEwan/lintel"
+Issues = "https://github.com/DustinEwan/lintel/issues"
 
 [project.scripts]
 lintel = "lintel.cli.main:main"
@@ -36,3 +57,14 @@ lintel = [
   "lakefile.toml",
   "lake-manifest.json",
 ]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+tag_format = "v$version"
+annotated_tag = true
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+changelog_incremental = false
+bump_message = "chore(release): v$current_version -> v$new_version"
+message_length_limit = 100

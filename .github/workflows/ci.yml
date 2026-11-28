@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Lean toolchain
         uses: leanprover/lean-action@v1
@@ -62,6 +64,12 @@ jobs:
 
       - name: Compile Python sources
         run: python3 -m py_compile lintel/*.py lintel/adapters/*.py lintel/adapters/language/*.py lintel/core/*.py lintel/core/use_cases/*.py lintel/cli/*.py tests/*.py
+
+      - name: Validate commit messages
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 -m pip install commitizen==4.20.1
+          cz check --rev-range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
 
       - name: Run unit tests
         run: python3 -m unittest discover -s tests -v
