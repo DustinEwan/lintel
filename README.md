@@ -36,6 +36,16 @@ For agents, that turns "keep the architecture clean" into concrete commands and 
 
 The theorem catalog, model definitions, and generation details are in [docs/formal-spec.md](docs/formal-spec.md).
 
+`generate-lean` turns extracted facts into Lean predicates. The generated
+instance closes the same rule with a proof:
+
+```lean
+theorem generated_core_cannot_reach_outer {a b : GeneratedModule}
+    (ha : generatedCore a) (hb : ¬ generatedCore b) :
+    ¬ Path generatedDep a b :=
+  core_cannot_reach_outer generatedArchitecture ha hb
+```
+
 Trust boundary: generated Lean proves deterministic fact/policy checks only. Extraction completeness, runtime behavior, semantic judgment, typed capability choices, strict layering, and runtime/nested subsystem embeddings are not claimed as Lean theorems. `generatedNestedArchitecture` is an identity-embedding sanity instance, not a claim about repository subsystems. Scope coverage includes all scoped paths, including documentation and configuration files, not only source modules. See [docs/limitations.md](docs/limitations.md).
 
 Toolchain: Lean 4.36.0, pinned in `lintel/lean-toolchain`.
@@ -110,7 +120,8 @@ Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md). See
 examples, [Semantic scenarios and decision model](#semantic-scenarios-and-decision-model)
 for the overview, [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md) for the
 detailed catalog, [docs/semantic-decisions.md](docs/semantic-decisions.md) for
-the model contract, and [docs/limitations.md](docs/limitations.md) for status.
+the model contract, [docs/limitations.md](docs/limitations.md) for status, and
+[Glossary](#glossary) for terminology.
 
 ## Deterministic vs semantic findings
 
@@ -351,3 +362,32 @@ CLI flags override path values. Layer patterns and allowed edges are independent
 Limits are summarized here; the status catalog is [docs/limitations.md](docs/limitations.md). Unsupported syntax fails closed as `unparsed_source`, ambiguous cases produce `semantic_review`, and native extractors extend coverage where toolchains exist. Exception mechanisms are in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); ambiguity cases are in [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md).
 
 The fixtures under `tests/fixtures/` contain deliberate violations and are useful for smoke-testing the pipeline.
+
+## Glossary
+
+| Term | Meaning |
+| --- | --- |
+| `core` | Inner ring for facts, rules, and use cases. Core source must not import outer rings. |
+| `adapters` | Outer ring for files, processes, frameworks, and I/O implementations. |
+| `entrypoints` | Wiring surfaces such as CLI commands and agent hooks. |
+| `ports` | Core-owned interfaces that adapters implement; source dependencies stay inward. |
+| `layer` | Named region with patterns, priority, and allowed edges in `lintel.toml`. |
+| `scope` | Context such as `test`, `fixture`, `generated`, or `vendor`; affects exemptions, not layer order. |
+| `executable` | Declared CLI surface with an owning layer. |
+| `facts` | Extracted modules, dependencies, concerns, wrappers, and reviews. |
+| `policy` | `lintel.toml` declaration of layers, scopes, executables, and allowed mechanisms. |
+| `lock` | `lintel.lock` digests config, rules, and checker artifacts; catches silent rule changes. |
+| `baseline` | Recorded violations and decisions treated as accepted debt. |
+| `fingerprint` | Stable ID for a finding or decision. |
+| `deterministic check` | Rule decidable from syntax and declared facts. |
+| `semantic_review` | Finding for valid syntax whose intent cannot be proved from facts. |
+| `decision model` | Bounded evaluator of `semantic_review` findings; cannot change facts or policy. |
+| `proposal` | Model suggestion shown by `lintel check`; advisory until a human reviews it. |
+| `decision` | Human-committed `compliant`, `violating`, or `needs-human-review` record. |
+| `stages` | Check phases: `deterministic` and `semantic`; hooks use deterministic only. |
+| `hook` | Agent integration command run at session, edit, stop, and review events. |
+| `boundary concern` | Use of argv, terminal, environment, module state, or similar outer-world mechanism. |
+| `mechanism` | Adapter-side way to reach a boundary concern, allowed only in permitted regions. |
+| `wrapper` / `build artifact` | Declared generated or native artifact attributed to its invoking wrapper. |
+| `unparsed_source` | Fail-closed fact emitted when declared source cannot be analyzed. |
+| `Lean instance` | Generated Lean module instantiating extracted facts; proofs cover deterministic checks only. |
