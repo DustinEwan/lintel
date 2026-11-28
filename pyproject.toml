@@ -7,7 +7,13 @@ name = "lintel"
 version = "0.1.0"
 description = "Architecture governance for agentic codebases"
 readme = "README.md"
-requires-python = ">=3.11"
+dependencies = [
+  "tree_sitter==0.27.0",
+  "tree_sitter_python==0.25.0",
+  "tree_sitter_go==0.25.0",
+  "tree_sitter_rust==0.24.2",
+  "tree_sitter_typescript==0.23.2",
+]
 
 [project.scripts]
 lintel = "lintel.cli.main:main"
