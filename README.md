@@ -140,17 +140,14 @@ findings.
 
 1. `lintel check` extracts facts, runs deterministic rules, and gathers the
    `semantic_review` findings.
-2. For each finding, Lintel builds one typed choice question keyed by
-   `<answer_key>:<fingerprint>`. The state contains the rule, module, source,
-   line, reason, a bounded source excerpt, and relevant policy context—not
-   credentials or raw decision-model settings.
-3. The configured Decisions API returns a choice and confidence, optionally
-   with a rationale. Lintel normalizes decision vocabulary, validates the
-   answer, derives a bounded rationale when omitted, and downgrades confidence
-   below `min_confidence` to `needs-human-review`. Missing keys, provider
-   errors, and malformed answers fail closed.
+2. For each finding, a semantic evaluator sees bounded context: rule, module,
+   source line, reason, nearby source, and relevant policy facts. It cannot
+   change facts or policy.
+3. The evaluator chooses `compliant`, `violating`, or `needs-human-review`.
+   Missing evidence means `needs-human-review`; low confidence is downgraded
+   to `needs-human-review` rather than treated as acceptance.
 4. The result is a proposal. `lintel check` reports it beside the still-open
-   finding; no baseline or lock is written.
+   finding; no baseline or lock is written. A human decision commits later.
 
 ### Example: an unknown CLI decorator
 
@@ -163,68 +160,31 @@ def serve():
     ...
 ```
 
-`acme_cli` is not an enumerated CLI framework, so syntax alone cannot tell
-whether `@app.group()` parses argv. The analyzer emits:
+A deterministic rule can prove that `click.command()` parses argv because
+`click` is enumerated. `acme_cli` is not. Calling `@app.group()` compliant or
+violating from syntax alone would be a guess, so the analyzer emits:
 
 ```text
 semantic_review: unresolved CLI framework decorator may parse argv (adapters/commands.py:3)
 ```
 
-Lintel sends one typed question with the stable id
-`decision:<fingerprint>`. Abbreviated request:
+The evaluator applies the policy to the bounded evidence:
 
-```json
-{
-  "model": "liquid/d1.2",
-  "state": {
-    "findings": [{
-      "rule": "semantic_review",
-      "source": "adapters/commands.py",
-      "line": 3,
-      "reason": "unresolved CLI framework decorator may parse argv",
-      "excerpt": "1: from acme_cli import app\n2:\n3: @app.group()\n4: def serve():"
-    }],
-    "policy": { "...": "regions, edges, executables, wrapper rules, source suffixes" }
-  },
-  "questions": {
-    "decision:<fingerprint>": {
-      "type": "choice",
-      "instructions": "Decide this Lintel semantic-review finding under the declared architecture policy. Give a concise rationale in the answer.",
-      "criteria": {
-        "compliant": "The construct is allowed under the declared policy.",
-        "violating": "The construct crosses a governed boundary.",
-        "needs-human-review": "The evidence is insufficient for an automatic decision."
-      }
-    }
-  }
-}
-```
+- If `adapters/commands.py` is a declared executable owned by `adapters`, the
+  decorator is adapter-local CLI wiring: `compliant`.
+- If the same decorator appears in `core`, or a core module imports the
+  command module, it crosses a governed boundary: `violating`.
+- If ownership, scope, or policy context is missing, the evidence is
+  insufficient: `needs-human-review`.
 
-The provider answers under the same id:
-
-```json
-{
-  "model": "liquid/d1.2",
-  "answers": {
-    "decision:<fingerprint>": {
-      "type": "choice",
-      "choice": "compliant",
-      "confidence": 0.91,
-      "rationale": "The decorator is in an adapter command module and adds no core dependency."
-    }
-  }
-}
-```
-
-`0.91` clears `min_confidence = 0.85`; lower confidence is downgraded to
-`needs-human-review`. Lintel reports the proposal but does not write it:
+For the first case, `check` reports a proposal but keeps the finding open:
 
 ```text
 semantic_review: unresolved CLI framework decorator may parse argv (adapters/commands.py:3)
-proposal: <fingerprint>: compliant (0.91) liquid/d1.2 choice=compliant confidence=0.9100 rationale=...
+proposal: <fingerprint>: compliant (0.91) — adapter-local CLI wiring
 ```
 
-A human accepts or rejects it:
+Nothing is written yet. A human accepts or rejects the proposal:
 
 ```sh
 lintel review <fingerprint> --decision compliant --reason "acme_cli is our local command framework"
@@ -236,9 +196,9 @@ exception stays live only while the fingerprint still matches; changing the
 code makes it `baseline_stale`. Rejection records the audit entry but leaves
 the finding blocking.
 
-The model cannot edit source, config, policy, facts, or the lock. Hooks, CI,
-`check_self.py`, and `accept-baseline` use `--stages deterministic`, so the
-provider is never called there. The full request/response contract is in
+The evaluator cannot edit source, config, policy, facts, or the lock. Hooks,
+CI, `check_self.py`, and `accept-baseline` use `--stages deterministic`, so
+no semantic evaluation runs there. Details are in
 [docs/semantic-decisions.md](docs/semantic-decisions.md).
 
 Configuration:
