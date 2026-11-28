@@ -7,4 +7,4 @@ lintel.cache.json
 build/
 dist/
 *.spec
-lintel.egg-info/
+*.egg-info/
