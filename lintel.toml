@@ -61,7 +61,8 @@ allowed_imports = [
   "lintel.core.model*",
   "lintel.core.use_cases.*",
   "lintel.core.hooks",
-  "lintel.core.review"
+  "lintel.core.review",
+  "lintel.core.version*",
 ]
 forbidden_imports = [
   "lintel.core.checker",

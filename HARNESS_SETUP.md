@@ -12,6 +12,10 @@ the governed project.
 It prints JSON with `block`, `context`, `findings`, and `commands`. Treat
 `block: true` as a failed in-loop check and surface the findings to the user.
 
+
+Advisory update check: `lintel version --check` reports whether a newer GitHub
+Release is available. It never blocks a hook or edit.
+
 Claude Code: add a `PostToolUse` hook with matcher `Edit|Write` whose command is
 `lintel hook post-edit`. Add a `Stop` hook with `lintel hook stop`.
 

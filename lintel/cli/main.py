@@ -11,6 +11,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from lintel.adapters.runtime import LintelRuntime, SemanticDecisionError
+from lintel.adapters import release as release_adapter
+from lintel.core.version import version_status
 from lintel.adapters import lean_generator
 from lintel.adapters.diagnostics import render_text
 from lintel.core.model import (
@@ -154,6 +156,36 @@ def _review(args, runtime):
     print(json.dumps(record, indent=2))
     return 0
 
+def _version(args, runtime):
+    info = release_adapter.install_info(ROOT)
+    latest = None
+    error = None
+    if args.check:
+        try:
+            latest = release_adapter.latest_release()
+        except release_adapter.ReleaseError as exc:
+            error = str(exc)
+    status = version_status(
+        info["version"], latest["version"] if latest else None, error
+    )
+    data = {**info, **status}
+    if latest:
+        data["release_url"] = latest["url"]
+        data["published_at"] = latest["published_at"]
+    if args.format == "json":
+        print(json.dumps(data, indent=2))
+        return 0
+    print(f"lintel {info['version']} ({info['channel']})")
+    if args.check:
+        if latest:
+            state = "update available" if status["update_available"] else "up to date"
+            print(f"latest release: {latest['version']} ({state})")
+            if latest["url"]:
+                print(f"release: {latest['url']}")
+        elif error:
+            print(f"release check: {error}")
+    return 0
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -176,6 +208,11 @@ def main():
         help="comma-separated stages: deterministic,semantic",
     )
 
+    version = commands.add_parser("version", help="show installed version")
+    version.add_argument(
+        "--check", action="store_true", help="check GitHub Releases for a newer version"
+    )
+    version.add_argument("--format", choices=("text", "json"), default="text")
     init = commands.add_parser("init", help="scaffold a governed project")
     init.add_argument("--preset", default="clean")
     init.add_argument("--output", default=".")
@@ -226,6 +263,8 @@ def main():
 
     if args.command == "check":
         return _check(args, runtime)
+    if args.command == "version":
+        return _version(args, runtime)
     if args.command == "init":
         runtime.scaffold(args.preset, args.output)
         print(f"Scaffolded {args.output} with the {args.preset} preset.")

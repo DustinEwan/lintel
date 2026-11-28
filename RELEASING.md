@@ -49,6 +49,7 @@ After publishing artifacts:
 ```sh
 cz version -p
 lintel check --format json
+lintel version --check
 ```
 
 Run the installed CLI against each example project and confirm all checks

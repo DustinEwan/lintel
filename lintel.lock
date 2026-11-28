@@ -1,6 +1,6 @@
 version = 1
 schema_version = 1
-config_sha256 = "e8ac44da63e0cd2107ef0e4c5926df9791f4b3da7855dded4d79183fa751b712"
+config_sha256 = "2f7353ea6afe09d7d25a4f629d6fc880cffadf7a1be84f3dde1dab4febfb8b43"
 rule_catalog_sha256 = "674cd79ef6238890f549928b158c2b0cd154a87881d5ccca54dffe0d39277eb4"
-checker_artifact_sha256 = "2a91158a47f04bc6f15f53c29f78d920c389474dc3c6254e8f020e485ff77b3f"
+checker_artifact_sha256 = "d3221c1cda5eb2498f3b59c3ebd5838defe3b894d49596288b00b5bf2aab3d52"
 baseline_sha256 = "2b4251b79e7609afb6857815ec0f9c791125e4b296e31b370cfdc97c20261712"
