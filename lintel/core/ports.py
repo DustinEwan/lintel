@@ -20,6 +20,7 @@ from .model import (
     merge_decisions,
 )
 from .review import is_accepting
+from .ratchet import violation_fingerprint
 
 
 class SelfConfigPort(Protocol):
@@ -101,8 +102,17 @@ def semantic_stage(
     if "semantic" not in stages:
         return (), ()
     findings = decision_source.semantic_review_findings(facts, policy)
-    proposals = decision_source.propose_decisions(findings, policy)
-    merge_decisions(facts.decisions, advisory_decisions(findings, proposals, facts))
+    accepted = {
+        item.fingerprint
+        for item in facts.decisions
+        if is_accepting(item.decision)
+    }
+    pending = tuple(
+        item
+        for item in findings
+        if violation_fingerprint(item) not in accepted
+    )
+    proposals = decision_source.propose_decisions(pending, policy)
     return findings, proposals
 
 

@@ -20,6 +20,7 @@ from lintel.adapters import rust_extractor
 from lintel.adapters import go_extractor
 from lintel.adapters import contract_facts, decision_model
 from lintel.core import hooks, review
+from lintel.core.ports import semantic_stage
 from lintel.cli import main as cli_main
 from lintel.adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from lintel.adapters.runtime import LintelRuntime, merge_facts
@@ -48,8 +49,9 @@ from lintel.core.model import (
     policy_from_dict,
     ScopeAssignment,
     PathOverrides,
-    SemanticReview,
+    SelfConfig,
     SemanticDecision,
+    SemanticReview,
     facts_with_decisions,
     merge_decisions,
     Violation,
@@ -937,6 +939,73 @@ class SelfFactPipelineTests(unittest.TestCase):
         self.assertTrue(
             any(item.rule == "semantic_review" for item in violations)
         )
+
+    def test_native_extractors_scan_governed_root_without_adapters_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for name in ("Cargo.toml", "main.go", "sample.ts"):
+                with open(os.path.join(directory, name), "w", encoding="utf-8") as handle:
+                    handle.write("")
+            runtime = LintelRuntime(directory)
+            config = SelfConfig(
+                core_root=directory,
+                adapters_root=os.path.join(directory, "missing-adapters"),
+                policy=real_policy(),
+                entrypoints_root="entrypoints",
+            )
+            commands = []
+
+            def fake_run(self, command, cwd=None):
+                commands.append(command)
+                if "--out" in command:
+                    path = command[command.index("--out") + 1]
+                    with open(path, "w", encoding="utf-8") as handle:
+                        handle.write('{"version": 1}')
+                return ""
+
+            with patch.object(LintelRuntime, "run", fake_run):
+                runtime.collect_self_facts(config, PathOverrides())
+            roots = [
+                command[command.index("--root") + 1]
+                for command in commands
+                if "--root" in command
+            ]
+            self.assertEqual(roots, [directory] * len(roots))
+            self.assertTrue(roots)
+
+    def test_accepted_semantic_finding_does_not_need_a_decision_provider(self):
+        finding = Violation(
+            "semantic_review",
+            "review ambiguity",
+            {
+                "source": "sample.py",
+                "location": "sample.py:1",
+                "line": 1,
+                "reason": "ambiguous alias",
+            },
+        )
+        decision = SemanticDecision(
+            fingerprint=violation_fingerprint(finding),
+            decision="compliant",
+            reason="reviewed",
+            model="human",
+        )
+
+        class DecisionSource:
+            def __init__(self):
+                self.calls = []
+
+            def semantic_review_findings(self, facts, policy):
+                return (finding,)
+
+            def propose_decisions(self, findings, policy):
+                self.calls.append(findings)
+                return ()
+
+        source = DecisionSource()
+        semantic_stage(
+            FactSet(decisions=(decision,)), real_policy(), source, ("semantic",)
+        )
+        self.assertEqual(source.calls, [()])
 
 class EscapeHatchTests(unittest.TestCase):
     def test_declared_unsupported_suffix_fails_closed(self):

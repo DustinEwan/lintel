@@ -1,0 +1,8 @@
+[package]
+name = "order-pricing"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "price"
+path = "src/entrypoints/price.rs"

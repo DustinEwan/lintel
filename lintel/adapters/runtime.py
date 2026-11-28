@@ -271,12 +271,19 @@ class LintelRuntime:
         go_project = bool(
             glob.glob(os.path.join(self.root, "**", "*.go"), recursive=True)
         )
-        rust_scan_root = os.path.join(adapters_root, "rust-extractor")
-        if not os.path.isdir(rust_scan_root):
-            rust_scan_root = adapters_root
-        go_scan_root = os.path.join(adapters_root, "go-extractor")
-        if not os.path.isdir(go_scan_root):
-            go_scan_root = adapters_root
+        rust_scan_root = self.root
+        rust_marker = os.path.join(adapters_root, "rust-extractor")
+        if os.path.isdir(rust_marker):
+            rust_scan_root = rust_marker
+        go_scan_root = self.root
+        go_marker = os.path.join(adapters_root, "go-extractor")
+        if os.path.isdir(go_marker):
+            go_scan_root = go_marker
+        typescript_scan_root = self.root
+        if os.path.isfile(
+            os.path.join(adapters_root, "extract_typescript_native.mjs")
+        ):
+            typescript_scan_root = adapters_root
 
         with tempfile.TemporaryDirectory() as directory:
             paths = []
@@ -301,7 +308,7 @@ class LintelRuntime:
                     "python3",
                     os.path.join(tool_cli, "extract_typescript.py"),
                     "--root",
-                    adapters_root,
+                    typescript_scan_root,
                     "--out",
                     output_path("typescript"),
                 ]

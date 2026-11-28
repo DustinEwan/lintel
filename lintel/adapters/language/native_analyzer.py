@@ -120,6 +120,10 @@ _RUST_MACRO_RULES_RE = re.compile(r"(?<![A-Za-z0-9_:])macro_rules\s*!")
 _RUST_CFG_START_RE = re.compile(r"^#\s*\[\s*(?P<name>cfg|cfg_attr)\s*\(")
 _CFG_TOKEN_RE = re.compile(r"\s*(?P<token>&&|\|\||[(),=!]|[A-Za-z_][A-Za-z0-9_]*)")
 
+_RUST_USE_LINE_RE = re.compile(
+    r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?use\s+(.+?);\s*$"
+)
+
 
 def _rust_string_opening(raw, index):
     match = _RUST_RAW_STRING_RE.match(raw, index)
@@ -161,6 +165,13 @@ def _javascript_regex_allowed(result):
         prefix.endswith("return")
         and (len(prefix) == 6 or not (prefix[-7].isalnum() or prefix[-7] == "_"))
     )
+
+
+def _javascript_entrypoint_path(relative_path):
+    normalized = str(relative_path).replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part]
+    stem = parts[-1].split(".")[0] if parts else ""
+    return "entrypoints" in parts or stem in {"main", "index", "cli"}
 
 
 def _mask_comments_and_strings(source, kind):
@@ -260,6 +271,10 @@ def _bounded_text(value, limit=64):
 def _pattern_matches(line, token):
     if token.startswith("re:"):
         return re.search(token[3:], line) is not None
+    if "." in token or "::" in token:
+        return re.search(
+            r"(?<![A-Za-z0-9_:])" + re.escape(token), line
+        ) is not None
     return token in line
 
 
@@ -428,6 +443,79 @@ def _rust_char_braces(raw_line):
     return opening, closing
 
 
+def _split_rust_use_items(text):
+    items = []
+    depth = 0
+    start = 0
+    for index, char in enumerate(text):
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            items.append(text[start:index])
+            start = index + 1
+    items.append(text[start:])
+    return [item.strip() for item in items if item.strip()]
+
+
+def _rust_use_tree(text, prefix=""):
+    aliases = {}
+    text = text.strip().lstrip(":")
+    if "{" in text:
+        head, rest = text.split("{", 1)
+        inner = rest.rsplit("}", 1)[0] if "}" in rest else rest
+        base = (prefix or head.strip().rstrip(":")).lstrip(":")
+        for item in _split_rust_use_items(inner):
+            aliases.update(_rust_use_tree(item, base))
+        return aliases
+    if " as " in text:
+        path, alias = (part.strip() for part in text.split(" as ", 1))
+    else:
+        path = text.strip()
+        alias = path.rsplit("::", 1)[-1]
+    if not path or alias in {"", "*", "self"}:
+        return aliases
+    if path == "self":
+        full = prefix
+    elif (
+        prefix
+        and not path.startswith(prefix + "::")
+        and path.split("::")[0] != prefix.split("::")[0]
+    ):
+        full = f"{prefix}::{path}"
+    else:
+        full = path
+    if full:
+        aliases[alias] = full
+    return aliases
+
+
+def _rust_use_aliases(lines):
+    aliases = {}
+    for line in lines:
+        match = _RUST_USE_LINE_RE.match(line.strip())
+        if match is not None:
+            aliases.update(_rust_use_tree(match.group(1)))
+    return aliases
+
+
+def _expand_rust_aliases(line, aliases):
+    result = line
+    if _RUST_USE_LINE_RE.match(result.strip()) is not None:
+        return result
+    for alias, full in sorted(aliases.items(), key=lambda item: -len(item[0])):
+        if not alias or alias == full:
+            continue
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9_:])"
+            + re.escape(alias)
+            + r"(?=\s*(?::|[(,;]))"
+        )
+        result = pattern.sub(full, result)
+    return result
+
+
 def _rust_macro_kind(path):
     if path in _RUST_LOGGING_MACROS:
         return "logging"
@@ -443,11 +531,12 @@ def _rust_macro_kind(path):
 
 
 class NativeSourceAnalyzer:
-    def __init__(self, suffixes, kind, patterns, main_test):
+    def __init__(self, suffixes, kind, patterns, main_test, entrypoint_path_test=None):
         self.suffixes = suffixes
         self.kind = kind
         self.patterns = patterns
         self.main_test = main_test
+        self.entrypoint_path_test = entrypoint_path_test
 
     def analyze(self, relative_path, source):
         module = module_name_from_path(relative_path)
@@ -460,14 +549,13 @@ class NativeSourceAnalyzer:
 
         for number, line in enumerate(lines, 1):
             stripped = line.strip()
-            if entrypoint is None and self.main_test(stripped):
+            if entrypoint is None and self.main_test(stripped) and (
+                self.entrypoint_path_test is None
+                or self.entrypoint_path_test(relative_path)
+            ):
                 entrypoint = Entrypoint(module, relative_path, self.kind)
             for token, concern, category in self.patterns:
-                matched = (
-                    re.search(token[3:], stripped) is not None
-                    if token.startswith("re:")
-                    else token in stripped
-                )
+                matched = _pattern_matches(stripped, token)
                 if matched:
                     concerns.append(
                         BoundaryConcernUse(
@@ -494,9 +582,11 @@ class NativeSourceAnalyzer:
         scopes = []
         pending = True
         pending_reason = ""
+        aliases = _rust_use_aliases(lines)
 
         for number, (raw, line) in enumerate(zip(raw_lines, lines), 1):
             cfg_attribute, code = _take_rust_cfg(line.strip())
+            code = _expand_rust_aliases(code, aliases)
             if cfg_attribute is None:
                 line_cfg, line_reason = pending, pending_reason
                 pending, pending_reason = True, ""
@@ -532,6 +622,9 @@ class NativeSourceAnalyzer:
                 continue
 
             stripped = code.strip()
+            matching_line = (
+                "" if _RUST_USE_LINE_RE.match(stripped) is not None else stripped
+            )
             inside_macro = macro_definition_line is not None
             if not inside_macro and _RUST_MACRO_RULES_RE.search(code):
                 macro_definition_line = number
@@ -569,23 +662,19 @@ class NativeSourceAnalyzer:
                 if (
                     entrypoint is None
                     and effective is True
-                    and self.main_test(stripped)
+                    and self.main_test(matching_line)
                 ):
                     entrypoint = Entrypoint(module, relative_path, self.kind)
 
                 found = []
                 for token, concern, category in self.patterns:
-                    matched = (
-                        re.search(token[3:], stripped) is not None
-                        if token.startswith("re:")
-                        else token in stripped
-                    )
+                    matched = _pattern_matches(matching_line, token)
                     if matched:
                         found.append((concern, category))
 
                 if not any(concern == "argv_parse" for concern, _ in found):
                     for pattern in RUST_UNENUMERATED_CLI_PATTERNS:
-                        if re.search(pattern, stripped):
+                        if re.search(pattern, matching_line):
                             reviews.append(
                                 SemanticReview(
                                     module,
@@ -656,4 +745,5 @@ def JavaScriptSourceAnalyzer():
         "javascript",
         JAVASCRIPT_PATTERNS,
         lambda line: "process.argv" in line,
+        _javascript_entrypoint_path,
     )

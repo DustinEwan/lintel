@@ -65,6 +65,8 @@ def resolve_from(module, names, level, current, is_package, modules, local_top):
     for name in names:
         target = f"{prefix}.{name}" if prefix else name
         resolved = resolve_dotted(target, modules, local_top)
+        if level == 0 and resolved and resolved.split(".", 1)[0] not in local_top:
+            resolved = resolved.split(".", 1)[0]
         if resolved:
             targets.append(resolved)
     return targets

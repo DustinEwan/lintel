@@ -1,0 +1,70 @@
+version = 1
+default_layer = "external"
+default_scope = "external"
+
+[paths]
+core_root = "core"
+adapters_root = "adapters"
+entrypoints_root = "pricing/entrypoints"
+
+[analysis]
+source_suffixes = ['.py']
+
+[boundary_concerns.entrypoint_only]
+
+[boundary_concerns.mechanism]
+allowed_regions = ["adapters", "entrypoints", "external"]
+
+[scopes.external]
+patterns = ["*"]
+priority = 0
+
+[scopes.test]
+patterns = ["tests/**", "**/*_test.py", "**/*.test.ts"]
+priority = 10
+
+[scopes.fixture]
+patterns = ["tests/fixtures/**"]
+priority = 20
+
+[scope_rules]
+excluded_scopes = ["fixture", "test", "generated", "vendor"]
+
+[scope_rules.conventions]
+"tests/" = "test"
+"tests/fixtures/" = "fixture"
+
+[layers.core]
+priority = 20
+core = true
+patterns = ['pricing.core*', 'pricing.core.*', 'core.*']
+allowed = ["core", "platform"]
+
+[layers.platform]
+priority = 30
+core = true
+patterns = ['argparse', 'dataclasses*', 'datetime', 'decimal', 'enum', 'json', 'os', 'pathlib', 'sys', 'typing*', 'uuid']
+allowed = ["platform"]
+
+[layers.entrypoints]
+priority = 40
+core = false
+patterns = ['pricing.entrypoints*', 'entrypoints.*']
+allowed = ["core", "platform", "adapters", "entrypoints", "external"]
+
+[layers.adapters]
+priority = 60
+core = false
+patterns = ['pricing.adapters*', 'adapters.*']
+allowed = ["core", "platform", "adapters", "external"]
+
+[layers.external]
+priority = 1000
+core = false
+patterns = ["*"]
+allowed = ["external"]
+
+[[executables]]
+name = "price"
+path = "pricing/entrypoints/price.py"
+owner = "entrypoints"

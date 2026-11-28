@@ -177,6 +177,36 @@ class RustCliScenarioTests(unittest.TestCase):
         )
         self.assertEqual(analysis.reviews, ())
 
+    def test_use_alias_is_canonicalized_for_boundary_tokens(self):
+        source = (
+            "use std::env;\n"
+            "fn main() {\n"
+            "    let args = env::args();\n"
+            "    let value = env::var(\"X\");\n"
+            "}\n"
+        )
+        analysis = RustSourceAnalyzer().analyze("src/main.rs", source)
+        self.assertEqual(
+            [item.line for item in of_concern(analysis, "argv_parse")], [3]
+        )
+        self.assertEqual([item.line for item in of_concern(analysis, "env")], [4])
+        self.assertEqual(analysis.reviews, ())
+
+    def test_grouped_and_renamed_use_aliases_are_canonicalized(self):
+        source = (
+            "use std::{env as runtime_env, io::stdout};\n"
+            "let args = runtime_env::args();\n"
+            "let mut out = stdout();\n"
+        )
+        analysis = RustSourceAnalyzer().analyze("src/main.rs", source)
+        self.assertEqual(
+            [item.line for item in of_concern(analysis, "argv_parse")], [2]
+        )
+        self.assertEqual(
+            [item.line for item in of_concern(analysis, "terminal_io")], [3]
+        )
+        self.assertEqual(analysis.reviews, ())
+
 
 class JavaScriptMaskingScenarioTests(unittest.TestCase):
     def test_regex_literal_is_masked_but_real_boundary_is_not(self):
@@ -190,6 +220,19 @@ class JavaScriptMaskingScenarioTests(unittest.TestCase):
         self.assertEqual(
             [item.line for item in of_concern(analysis, "env")], [2]
         )
+
+    def test_process_argv_in_adapter_is_not_an_entrypoint(self):
+        analysis = native_analyzer.JavaScriptSourceAnalyzer().analyze(
+            "src/adapters/sample.ts", "const args = process.argv;\n"
+        )
+        self.assertIsNone(analysis.entrypoint)
+        self.assertEqual([item.line for item in of_concern(analysis, "argv_parse")], [1])
+
+    def test_process_argv_in_entrypoints_is_an_entrypoint(self):
+        analysis = native_analyzer.JavaScriptSourceAnalyzer().analyze(
+            "src/entrypoints/price.ts", "const args = process.argv;\n"
+        )
+        self.assertIsNotNone(analysis.entrypoint)
 
 
 class RustCfgScenarioTests(unittest.TestCase):
@@ -299,6 +342,24 @@ class GoBuildTagScenarioTests(unittest.TestCase):
             [item.line for item in of_concern(analysis, "terminal_io")], [4]
         )
         self.assertEqual(analysis.reviews, ())
+
+
+class GoBoundaryTokenScenarioTests(unittest.TestCase):
+    def test_dot_token_inside_identifier_is_not_a_boundary_concern(self):
+        source = (
+            "package use_cases\n"
+            "func price(catalog Catalog) { catalog.UnitPrice(\"A100\") }\n"
+        )
+        analysis = GoSourceAnalyzer().analyze("core/use_cases/price.go", source)
+        self.assertEqual(analysis.concerns, ())
+        self.assertEqual(analysis.reviews, ())
+
+    def test_real_log_call_is_still_detected(self):
+        source = 'package adapters\nfunc run() { log.Println("x") }\n'
+        analysis = GoSourceAnalyzer().analyze("adapters/sample.go", source)
+        self.assertEqual(
+            [item.line for item in of_concern(analysis, "logging")], [2]
+        )
 
 
 if __name__ == "__main__":
