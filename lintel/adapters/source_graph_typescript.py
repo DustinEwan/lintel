@@ -7,8 +7,14 @@ import tree_sitter_typescript as tsts
 
 from lintel.adapters.extract_common import iter_files, rel
 
-_LANGUAGE = ts.Language(tsts.language_typescript())
-_PARSER = ts.Parser(_LANGUAGE)
+_TS_PARSER = ts.Parser(ts.Language(tsts.language_typescript()))
+_TSX_PARSER = ts.Parser(ts.Language(tsts.language_tsx()))
+
+
+def _parser_for(path):
+    return _TSX_PARSER if path.endswith((".tsx", ".jsx")) else _TS_PARSER
+
+
 _SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
 
 
@@ -68,10 +74,12 @@ def _string_value(node, source_bytes):
 
 
 def _static_specifier(node, source_bytes):
-    if node.type not in ("import_statement", "export_statement"):
+    if node.type == "import_statement":
+        string_node = next((child for child in node.children if child.type == "string"), None)
+        return _string_value(string_node, source_bytes), True
+    if node.type != "export_statement":
         return None, False
-    has_from = any(child.type == "from" for child in node.children)
-    if not has_from:
+    if not any(child.type == "from" for child in node.children):
         return None, False
     string_node = next((child for child in node.children if child.type == "string"), None)
     return _string_value(string_node, source_bytes), True
@@ -112,7 +120,7 @@ def extract(root):
     for path in files:
         with open(path, "rb") as handle:
             source_bytes = handle.read()
-        tree = _PARSER.parse(source_bytes)
+        tree = _parser_for(path).parse(source_bytes)
         current = module_by_file[path]
         source = rel(path, root)
         seen = set()

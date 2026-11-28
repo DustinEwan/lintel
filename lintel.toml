@@ -97,7 +97,8 @@ forbidden = [
   "lintel.cli.*",
   "check_facts",
   "check_self",
-  "lintel.adapters.runtime"
+  "lintel.adapters.runtime",
+  "lintel.adapters.extract_common"
 ]
 
 [layers.core]
@@ -109,7 +110,8 @@ forbidden = [
   "lintel.cli.*",
   "check_facts",
   "check_self",
-  "lintel.adapters.runtime"
+  "lintel.adapters.runtime",
+  "lintel.adapters.extract_common"
 ]
 
 [layers.platform]

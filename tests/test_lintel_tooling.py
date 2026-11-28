@@ -503,6 +503,8 @@ class BoundaryConcernTests(unittest.TestCase):
         self.assertIsNone(analyzer_for_suffix(".zzz"))
 
 
+class WrapperOperationTests(unittest.TestCase):
+
     def test_composition_is_not_fat(self):
         policy = real_policy()
         facts = FactSet(
@@ -1471,6 +1473,34 @@ class TypeScriptGraphContributorTests(unittest.TestCase):
                 "dynamic dependency with non-literal specifier",
             )
 
+    def test_side_effect_import_produces_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "a.ts"), "w", encoding="utf-8") as handle:
+                handle.write('import "./setup";\n')
+            with open(os.path.join(directory, "setup.ts"), "w", encoding="utf-8") as handle:
+                handle.write("export const setup = true;\n")
+            data = source_graph_typescript.extract(directory)
+            dependencies = {
+                (item["from"], item["to"], item["line"])
+                for item in data["dependencies"]
+            }
+            self.assertIn(("a", "setup", 1), dependencies)
+            self.assertEqual(data["unparsed"], [])
+
+    def test_tsx_jsx_source_keeps_import_edges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "a.tsx"), "w", encoding="utf-8") as handle:
+                handle.write('import {value} from "./b";\nconst element = <div />;\n')
+            with open(os.path.join(directory, "b.ts"), "w", encoding="utf-8") as handle:
+                handle.write("export const value = 1;\n")
+            data = source_graph_typescript.extract(directory)
+            dependencies = {
+                (item["from"], item["to"], item["line"])
+                for item in data["dependencies"]
+            }
+            self.assertIn(("a", "b", 1), dependencies)
+            self.assertEqual(data["unparsed"], [])
+
 
 class RustGraphContributorTests(unittest.TestCase):
     @staticmethod
@@ -1553,6 +1583,20 @@ class RustGraphContributorTests(unittest.TestCase):
             data = source_graph_rust.extract(directory)
             self.assertEqual(len(data["unparsed"]), 1)
             self.assertEqual(data["unparsed"][0]["reason"], "include! target not found")
+
+    def test_nested_path_attribute_keeps_module_qualification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write(directory, "Cargo.toml", '[package]\nname = "demo"\nversion = "0.1.0"\n')
+            self.write(
+                directory,
+                "src/lib.rs",
+                'mod outer {\n  #[path = "outer/nested.rs"]\n  mod nested;\n}\n',
+            )
+            self.write(directory, "src/outer/nested.rs", "pub fn nested() {}\n")
+            data = source_graph_rust.extract(directory)
+            modules = {item["name"]: item["path"] for item in data["modules"]}
+            self.assertEqual(modules.get("demo::outer::nested"), "src/outer/nested.rs")
+            self.assertEqual(data["unparsed"], [])
 
 
 class GoGraphContributorTests(unittest.TestCase):

@@ -112,6 +112,34 @@ def _mod_name(node, source_bytes):
     return _text(identifier, source_bytes) if identifier is not None else None
 
 
+def _following_mod(node, source_bytes):
+    parent = node.parent
+    if parent is None:
+        return None
+    children = list(parent.children)
+    target = next(
+        (child for child in children[children.index(node) + 1 :] if child.type == "mod_item"),
+        None,
+    )
+    if target is None:
+        return None
+    names = []
+    ancestor = target.parent
+    while ancestor is not None:
+        if ancestor.type == "mod_item" and any(
+            child.type == "declaration_list" for child in ancestor.children
+        ):
+            name = _mod_name(ancestor, source_bytes)
+            if name:
+                names.append(name)
+        ancestor = ancestor.parent
+    names.reverse()
+    name = _mod_name(target, source_bytes)
+    if name:
+        names.append(name)
+    return "::".join(names) if names else None
+
+
 def _include_path(node, source_bytes):
     token_tree = _find(node, "token_tree")
     if token_tree is None:
@@ -166,16 +194,13 @@ def extract(root):
                     line, "#[path] target not found",
                 )
                 if target is not None:
-                    name = next(
-                        (
-                            _mod_name(child, source_bytes)
-                            for child in trees[path].root_node.children
-                            if child.type == "mod_item" and child.start_byte > node.end_byte
-                        ),
-                        None,
-                    )
+                    name = _following_mod(node, source_bytes)
                     if name:
                         path_specs.append((name, target))
+                    else:
+                        unparsed.append(
+                            {"source": rel(path, root), "line": line, "reason": "#[path] changes module paths"}
+                        )
             elif node.type == "macro_invocation":
                 function = next((child for child in node.children if child.type == "identifier"), None)
                 if function is None or _text(function, source_bytes) != "include":

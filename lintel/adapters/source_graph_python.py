@@ -135,6 +135,13 @@ def _import_aliases(node, source_bytes):
         elif child.type == "dotted_name":
             name = _text(child, source_bytes)
             pairs.append((name, name))
+        elif child.type == "import_list":
+            for item in child.named_children:
+                if item.type == "aliased_import":
+                    pairs.append(_name_and_alias(item, source_bytes))
+                elif item.type == "dotted_name":
+                    name = _text(item, source_bytes)
+                    pairs.append((name, name))
     return pairs
 
 
@@ -169,7 +176,13 @@ def _import_parts(node, source_bytes):
             elif child.type in ("dotted_name", "identifier"):
                 module = _text(child, source_bytes)
             continue
-        if child.type in ("dotted_name", "aliased_import"):
+        if child.type == "import_list":
+            for item in child.named_children:
+                if item.type == "dotted_name":
+                    names.append(_text(item, source_bytes))
+                elif item.type == "aliased_import":
+                    names.append(_aliased_name(item, source_bytes))
+        elif child.type in ("dotted_name", "aliased_import"):
             names.append(_aliased_name(child, source_bytes))
     return module, level, names
 

@@ -217,6 +217,21 @@ class PythonGraphContributorTests(unittest.TestCase):
                 [("sample", "datetime")],
             )
 
+    def test_parenthesized_from_import_lists_all_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for relative in ("sample.py", "pkg/__init__.py", "pkg/alpha.py", "pkg/beta.py"):
+                path = os.path.join(directory, relative)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write("from pkg import (alpha, beta as gamma)\n" if relative == "sample.py" else "")
+            data = source_graph_python.extract(directory)
+            dependencies = {
+                (item["from"], item["to"], item["line"])
+                for item in data["dependencies"]
+            }
+            self.assertIn(("sample", "pkg.alpha", 1), dependencies)
+            self.assertIn(("sample", "pkg.beta", 1), dependencies)
+
 
 if __name__ == "__main__":
     unittest.main()
