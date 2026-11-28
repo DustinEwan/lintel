@@ -8,6 +8,7 @@ import tomllib
 
 from lintel.core.model import Violation
 from lintel.core.rules import catalog_data, rule_spec
+from lintel.core import build_info
 
 CHECKER_ARTIFACTS = (
     "Lintel.lean",
@@ -46,6 +47,7 @@ CHECKER_ARTIFACTS = (
     "core/graph_facts.py",
     "core/graph_index.py",
     "core/source_patterns.py",
+    "core/build_info.py",
     "core/version.py",
     "adapters/language/tree_sitter_analyzer.py",
     "adapters/language/tree_sitter_go.py",
@@ -82,6 +84,9 @@ def rule_catalog_digest():
 
 
 def checker_artifact_digest(root):
+    embedded = build_info.CHECKER_ARTIFACT_SHA256
+    if embedded:
+        return embedded
     hasher = hashlib.sha256()
     for relative in CHECKER_ARTIFACTS:
         path = os.path.join(root, relative)

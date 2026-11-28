@@ -35,9 +35,12 @@ priority = 20
 patterns = ["examples/**"]
 priority = 10
 
+[scopes.installer]
+patterns = ["lintel-install.sh"]
+priority = 30
+
 [scope_rules]
-excluded_scopes = ["fixture", "test", "example", "generated", "vendor"]
-forbidden_edges = []
+excluded_scopes = ["fixture", "test", "example", "generated", "vendor", "installer"]
 
 [scope_rules.conventions]
 "tests/fixtures/" = "fixture"

@@ -42,6 +42,10 @@ Commitizen derives the version bump and changelog from Conventional Commits.
    git push origin main --follow-tags
    ```
 
+5. Pushing the tag triggers `.github/workflows/release.yml`. It builds standalone
+   binaries, publishes them with `SHA256SUMS` to GitHub Releases, and publishes
+   `lintel-architecture` to PyPI using `PYPI_API_TOKEN`.
+
 ## Verification
 
 After publishing artifacts:

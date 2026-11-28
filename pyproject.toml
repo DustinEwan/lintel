@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lintel"
+name = "lintel-architecture"
 version = "0.1.0"
 description = "Architecture governance for agentic codebases"
 authors = [{ name = "Dustin Ewan" }]

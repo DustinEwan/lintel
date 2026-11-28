@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from lintel.adapters import release
+from lintel.adapters import contract_lock
 from lintel.core.version import is_newer, parse_version, version_status
 
 
@@ -55,6 +56,13 @@ class VersionStatusTests(unittest.TestCase):
                 patch.object(release, "installed_version", return_value="1.0.0"),
             ):
                 self.assertEqual(release.install_info(root)["channel"], "editable")
+
+    def test_checker_digest_uses_embedded_value(self):
+        with patch.object(release.build_info, "CHECKER_ARTIFACT_SHA256", "embedded-digest"):
+            self.assertEqual(
+                contract_lock.checker_artifact_digest("/nonexistent"),
+                "embedded-digest",
+            )
 
 if __name__ == "__main__":
     unittest.main()

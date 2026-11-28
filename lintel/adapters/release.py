@@ -7,10 +7,24 @@ import tomllib
 from importlib.metadata import PackageNotFoundError, distribution
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from lintel.core import build_info
 
 RELEASES_URL = "https://api.github.com/repos/DustinEwan/lintel/releases/latest"
 DISTRIBUTION_NAMES = ("lintel-architecture", "lintel")
 
+
+def embedded_build_info():
+    """Return build-time metadata available to frozen binaries."""
+    return {
+        "build_version": build_info.VERSION,
+        "build_channel": build_info.CHANNEL,
+        "commit": build_info.COMMIT,
+        "contract_revision": build_info.CONTRACT_REVISION,
+        "config_sha256": build_info.CONFIG_SHA256,
+        "rule_catalog_sha256": build_info.RULE_CATALOG_SHA256,
+        "checker_artifact_sha256": build_info.CHECKER_ARTIFACT_SHA256,
+        "baseline_sha256": build_info.BASELINE_SHA256,
+    }
 
 class ReleaseError(RuntimeError):
     """Raised when a release advisory cannot be produced."""
@@ -18,6 +32,8 @@ class ReleaseError(RuntimeError):
 
 def installed_version(root):
     """Read the installed version, falling back to a source checkout."""
+    if build_info.VERSION:
+        return build_info.VERSION
     for name in DISTRIBUTION_NAMES:
         try:
             return distribution(name).version
@@ -35,6 +51,8 @@ def installed_version(root):
 def install_info(root):
     """Describe how the running CLI was installed."""
     version = installed_version(root)
+    if build_info.CHANNEL == "binary":
+        return {"version": version, "channel": "binary", "source": None}
     package_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     root_path = os.path.realpath(root)
     has_source_manifest = os.path.isfile(os.path.join(root_path, "pyproject.toml"))

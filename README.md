@@ -23,6 +23,23 @@ If you know Clean, Hexagonal, or Onion architecture, this is their shared depend
 
 For agents, that turns "keep the architecture clean" into concrete commands and machine-readable findings. Architecture intent survives long sequences of autonomous edits.
 
+## Install
+
+Download the checksum-verified standalone binary:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/DustinEwan/lintel/main/lintel-install.sh | sh
+lintel check
+```
+
+No Python installation is required. The shell installer supports Linux and macOS on x86_64 and aarch64; Windows binaries are published on each release page.
+
+The source distribution is published as `lintel-architecture`:
+
+```sh
+python -m pip install lintel-architecture
+```
+
 ## Formal Lean spec
 
 `lintel/Lintel.lean` is a Lean 4 model of inward dependency boundaries. It proves deterministic properties over extracted facts; `generate-lean` instantiates those facts and checks the generated module with Lean.

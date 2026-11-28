@@ -168,7 +168,7 @@ def _version(args, runtime):
     status = version_status(
         info["version"], latest["version"] if latest else None, error
     )
-    data = {**info, **status}
+    data = {**info, **status, **release_adapter.embedded_build_info()}
     if latest:
         data["release_url"] = latest["url"]
         data["published_at"] = latest["published_at"]

@@ -1,0 +1,177 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset: lintel-linux-x86_64
+          - runner: ubuntu-24.04-arm
+            asset: lintel-linux-aarch64
+          - runner: macos-15-intel
+            asset: lintel-macos-x86_64
+          - runner: macos-15
+            asset: lintel-macos-aarch64
+          - runner: windows-latest
+            asset: lintel-windows-x86_64.exe
+    env:
+      ASSET: ${{ matrix.asset }}
+      SEP: ${{ runner.os == 'Windows' && ';' || ':' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install ".[dev]" "pyinstaller==6.22.3"
+
+      - name: Verify tag version
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          version = os.environ["TAG"].removeprefix("v")
+          project = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          expected = project["project"]["version"]
+          if version != expected:
+              raise SystemExit(
+                  f"tag version {version} does not match pyproject version {expected}"
+              )
+          PY
+
+      - name: Embed build info
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          lock = tomllib.loads(pathlib.Path("lintel.lock").read_text(encoding="utf-8"))
+          fields = {
+              "VERSION": os.environ["VERSION"].removeprefix("v"),
+              "CHANNEL": "binary",
+              "COMMIT": os.environ["GITHUB_SHA"],
+              "CONTRACT_REVISION": lock.get("contract_revision"),
+              "CONFIG_SHA256": lock.get("config_sha256"),
+              "RULE_CATALOG_SHA256": lock.get("rule_catalog_sha256"),
+              "CHECKER_ARTIFACT_SHA256": lock.get("checker_artifact_sha256"),
+              "BASELINE_SHA256": lock.get("baseline_sha256"),
+          }
+          lines = [
+              '"""Build-time metadata embedded in release binaries."""',
+              "",
+          ]
+          lines.extend(f"{key} = {value!r}" for key, value in fields.items())
+          pathlib.Path("lintel/core/build_info.py").write_text(
+              "\n".join(lines) + "\n", encoding="utf-8"
+          )
+          PY
+        env:
+          VERSION: ${{ github.ref_name }}
+
+      - name: Build standalone binary (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          pyinstaller --onefile --clean --noconfirm --name lintel \
+            --collect-all tree_sitter \
+            --collect-all tree_sitter_python \
+            --collect-all tree_sitter_go \
+            --collect-all tree_sitter_rust \
+            --collect-all tree_sitter_typescript \
+            --add-data "lintel/Lintel.lean${SEP}lintel" \
+            --add-data "lintel/lake-manifest.json${SEP}lintel" \
+            --add-data "lintel/lean-toolchain${SEP}lintel" \
+            --add-data "lintel/lakefile.toml${SEP}lintel" \
+            lintel/cli/main.py
+          mv dist/lintel "dist/$ASSET"
+          (cd dist && sha256sum "$ASSET" > "$ASSET.sha256")
+
+      - name: Build standalone binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pyinstaller --onefile --clean --noconfirm --name lintel `
+            --collect-all tree_sitter `
+            --collect-all tree_sitter_python `
+            --collect-all tree_sitter_go `
+            --collect-all tree_sitter_rust `
+            --collect-all tree_sitter_typescript `
+            --add-data "lintel/Lintel.lean${env:SEP}lintel" `
+            --add-data "lintel/lake-manifest.json${env:SEP}lintel" `
+            --add-data "lintel/lean-toolchain${env:SEP}lintel" `
+            --add-data "lintel/lakefile.toml${env:SEP}lintel" `
+            lintel/cli/main.py
+          Move-Item dist\lintel.exe "dist\$env:ASSET"
+          $hash = (Get-FileHash "dist\$env:ASSET" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $env:ASSET" | Set-Content "dist\$env:ASSET.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.asset }}
+          path: |
+            dist/${{ matrix.asset }}
+            dist/${{ matrix.asset }}.sha256
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Assemble release assets
+        run: |
+          mkdir -p release
+          cp artifacts/lintel-* release/
+          cat artifacts/*.sha256 > release/SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/lintel-*
+            release/SHA256SUMS
+          generate_release_notes: true
+
+  pypi:
+    name: Publish PyPI package
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build distributions
+        run: |
+          python -m pip install build
+          python -m build
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
