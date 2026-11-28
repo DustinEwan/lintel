@@ -1,3 +1,5 @@
+"""Core scenario coverage."""
+
 from dataclasses import replace
 import os
 import subprocess
@@ -136,6 +138,53 @@ class TransitiveScenarioTests(unittest.TestCase):
         self.assertEqual(synthetic, ())
         self.assertEqual(reviews, ())
 
+    def test_sem15_declared_wrapper_bridge_propagates_to_core_importer(self):
+        policy = replace(
+            scenario_policy(),
+            build_artifacts=(BuildArtifact("native/main.rs", "adapters.wrapper"),),
+        )
+        facts = FactSet(
+            modules=(
+                Module("core.service", "core/service.py"),
+                Module("adapters.wrapper", "adapters/wrapper.py"),
+                Module("adapters.artifact", "native/main.rs"),
+            ),
+            dependencies=(
+                Dependency("core.service", "adapters.wrapper", source="core/service.py", line=2),
+            ),
+            concerns=(
+                BoundaryConcernUse("adapters.artifact", "env", "mechanism", "native/main.rs", 1),
+            ),
+            wrapper_operations=(
+                WrapperOperation("adapters.wrapper", "subprocess", "native/main.rs", "adapters/wrapper.py", 3),
+            ),
+        )
+        synthetic, reviews = transitive_boundary_concerns(facts, policy)
+        self.assertIn(
+            ("core.service", "core/service.py", 2),
+            [(item.module, item.source, item.line) for item in synthetic],
+        )
+        self.assertEqual(reviews, ())
+
+    def test_sem15_unresolved_core_wrapper_target_is_reviewed(self):
+        policy = replace(
+            scenario_policy(),
+            build_artifacts=(BuildArtifact("native/missing.rs", "core.runner"),),
+        )
+        facts = FactSet(
+            modules=(Module("core.runner", "core/runner.py"),),
+            wrapper_operations=(
+                WrapperOperation("core.runner", "subprocess", "native/missing.rs", "core/runner.py", 4),
+            ),
+        )
+        synthetic, reviews = transitive_boundary_concerns(facts, policy)
+        self.assertEqual(synthetic, ())
+        self.assertEqual(len(reviews), 1)
+        self.assertIn(
+            "SEM-15 wrapper target 'native/missing.rs' cannot be resolved",
+            reviews[0].reason,
+        )
+
 
 class GeneratedScopeScenarioTests(unittest.TestCase):
     def test_sem08_declared_generated_and_vendor_concerns_are_skipped(self):
@@ -230,6 +279,47 @@ class PolicyDiffScenarioTests(unittest.TestCase):
                 )
             )
             self.assertEqual(policy_diff.detect(directory, facts), ())
+
+    def test_sem16_staged_policy_weakening_and_staged_concern_are_reviewed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            git = self._repository(directory)
+            with open(os.path.join(directory, "lintel.toml"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    "[boundary_concerns.entrypoint_only]\n"
+                    "allowed_regions = [\"entrypoints\", \"adapters\"]\n"
+                )
+            with open(os.path.join(directory, "adapters", "sample.py"), "w", encoding="utf-8") as handle:
+                handle.write("import argparse\nparser = argparse.ArgumentParser()\n")
+            git("add", "lintel.toml", "adapters/sample.py")
+            facts = FactSet(
+                concerns=(
+                    BoundaryConcernUse("sample", "argv_parse", "entrypoint_only", "adapters/sample.py", 2),
+                )
+            )
+            reviews = policy_diff.detect(directory, facts)
+            self.assertEqual(len(reviews), 1)
+            self.assertIn("argv_parse", reviews[0].reason)
+
+    def test_sem16_untracked_source_with_tracked_policy_weakening_is_reviewed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            git = self._repository(directory)
+            with open(os.path.join(directory, "lintel.toml"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    "[boundary_concerns.entrypoint_only]\n"
+                    "allowed_regions = [\"entrypoints\", \"adapters\"]\n"
+                )
+            git("add", "lintel.toml")
+            untracked_path = os.path.join(directory, "adapters", "untracked.py")
+            with open(untracked_path, "w", encoding="utf-8") as handle:
+                handle.write("import argparse\nparser = argparse.ArgumentParser()\n")
+            facts = FactSet(
+                concerns=(
+                    BoundaryConcernUse("untracked", "argv_parse", "entrypoint_only", "adapters/untracked.py", 2),
+                )
+            )
+            reviews = policy_diff.detect(directory, facts)
+            self.assertEqual(len(reviews), 1)
+            self.assertIn("adapters/untracked.py:2", reviews[0].reason)
 
     def test_sem16_replaced_forbidden_entry_is_weakening(self):
         before = {"layers": {"core": {"core": True, "forbidden": ["one", "two"]}}}

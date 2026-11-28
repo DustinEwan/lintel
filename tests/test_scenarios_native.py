@@ -73,11 +73,27 @@ class RustMacroScenarioTests(unittest.TestCase):
         # The Rust dependency extractor already emits unparsed_source for
         # macro_rules!; the native analyzer must not duplicate it or read an
         # unexpanded body as executable code.
-        self.assertEqual(analysis.unparsed, ())
-        self.assertEqual(analysis.reviews, ())
+        self.assertEqual(len(analysis.reviews), 1)
+        self.assertEqual(analysis.reviews[0].line, 1)
+        self.assertIn("macro_rules! body", analysis.reviews[0].reason)
         self.assertEqual(
             [item.line for item in of_concern(analysis, "terminal_io")], [2]
         )
+
+    def test_multiline_macro_rules_body_is_reviewed_at_definition(self):
+        source = (
+            "macro_rules! forward {\n"
+            "    () => {\n"
+            "        println!(\"x\");\n"
+            "    };\n"
+            "}\n"
+            "fn main() {}\n"
+        )
+        analysis = RustSourceAnalyzer().analyze("src/main.rs", source)
+        self.assertEqual(analysis.concerns, ())
+        self.assertEqual(len(analysis.reviews), 1)
+        self.assertEqual(analysis.reviews[0].line, 1)
+        self.assertIn("macro_rules! body", analysis.reviews[0].reason)
 
     def test_comments_and_strings_do_not_create_concerns_or_reviews(self):
         source = (
@@ -91,6 +107,29 @@ class RustMacroScenarioTests(unittest.TestCase):
         )
         self.assertEqual(analysis.reviews, ())
 
+    def test_multiline_rust_raw_string_does_not_create_concerns(self):
+        source = (
+            'let text = r#"first\n'
+            'std::env::var\n'
+            'last"#;\n'
+            'let value = std::env::var("X");\n'
+        )
+        analysis = RustSourceAnalyzer().analyze("src/main.rs", source)
+        self.assertEqual(
+            [item.line for item in of_concern(analysis, "env")], [4]
+        )
+
+    def test_rust_byte_and_raw_strings_do_not_create_concerns(self):
+        source = (
+            'let bytes = b"std::env::var";\n'
+            'let raw = br##"std::env::var"##;\n'
+            'let value = std::env::var("X");\n'
+        )
+        analysis = RustSourceAnalyzer().analyze("src/main.rs", source)
+        self.assertEqual(
+            [item.line for item in of_concern(analysis, "env")], [3]
+        )
+
     def test_native_boundary_operations_are_exposed_as_concerns(self):
         source = (
             "let args = std::env::args();\n"
@@ -103,6 +142,53 @@ class RustMacroScenarioTests(unittest.TestCase):
         )
         self.assertEqual(
             [item.line for item in of_concern(analysis, "terminal_io")], [2, 3]
+        )
+
+
+
+class RustCliScenarioTests(unittest.TestCase):
+    def test_unenumerated_clap_derives_are_reviewed_not_deterministic(self):
+        source = "#[derive(clap::Args)]\nstruct Options { value: String }\n"
+        analysis = RustSourceAnalyzer().analyze("src/main.rs", source)
+        self.assertEqual(analysis.concerns, ())
+        self.assertEqual(len(analysis.reviews), 1)
+        self.assertEqual(analysis.reviews[0].line, 1)
+        self.assertEqual(
+            analysis.reviews[0].reason, "unresolved CLI framework idiom may parse argv"
+        )
+
+    def test_command_and_clap_attributes_are_reviewed(self):
+        source = "#[command(name = \"demo\")]\nfn one() {}\n#[clap(long)]\nfn two() {}\n"
+        analysis = RustSourceAnalyzer().analyze("src/main.rs", source)
+        self.assertEqual(analysis.concerns, ())
+        self.assertEqual([item.line for item in analysis.reviews], [1, 3])
+        self.assertTrue(
+            all(
+                item.reason == "unresolved CLI framework idiom may parse argv"
+                for item in analysis.reviews
+            )
+        )
+
+    def test_parser_derive_stays_deterministic_without_cli_review(self):
+        source = "#[derive(clap::Parser)]\nstruct Options { value: String }\n"
+        analysis = RustSourceAnalyzer().analyze("src/main.rs", source)
+        self.assertEqual(
+            [item.line for item in of_concern(analysis, "argv_parse")], [1]
+        )
+        self.assertEqual(analysis.reviews, ())
+
+
+class JavaScriptMaskingScenarioTests(unittest.TestCase):
+    def test_regex_literal_is_masked_but_real_boundary_is_not(self):
+        source = (
+            "const value = /process.env/;\n"
+            "const live = process.env.X;\n"
+        )
+        analysis = native_analyzer.JavaScriptSourceAnalyzer().analyze(
+            "sample.js", source
+        )
+        self.assertEqual(
+            [item.line for item in of_concern(analysis, "env")], [2]
         )
 
 

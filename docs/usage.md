@@ -21,7 +21,7 @@ python -m pip install .
 | Write merged facts | `lintel check --out facts.json` |
 | Recheck a facts file | `lintel check facts.json --config lintel.toml` |
 | Generate from saved facts | `lintel generate-lean --facts facts.json` |
-| Resolve semantic reviews with a decision model | `lintel semantic-check` |
+| Check with deterministic stages only (hooks/CI) | `lintel check --stages deterministic` |
 | Explain a rule | `lintel explain adapter_cli_concern` |
 | Relock after a contract change | `lintel update-lock` |
 | Accept a clean baseline update | `lintel accept-baseline` |

@@ -26,6 +26,7 @@ from lintel.core.model import (
     FactSet,
     Policy,
     SelfConfig,
+    SemanticDecision,
     facts_from_dict,
     facts_to_dict,
     PathOverrides,
@@ -35,6 +36,7 @@ from lintel.core.model import (
 )
 
 from lintel.core.ratchet import compare_baseline, is_baselineable, violation_fingerprint
+from lintel.core.ports import SemanticDecisionError
 
 DEFAULT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_CORE_ROOT = "core"
@@ -486,8 +488,11 @@ class LintelRuntime:
             if key in accepting
         )
 
-    def decision_model_decisions(self, findings, policy):
-        return decision_model.evaluate(findings, policy, self.root)
+    def propose_decisions(self, findings, policy):
+        try:
+            return decision_model.evaluate(findings, policy, self.root)
+        except decision_model.DecisionModelError as error:
+            raise SemanticDecisionError(str(error)) from error
 
     def record_model_decisions(self, decisions, findings=()):
         fields = {
@@ -552,12 +557,12 @@ class LintelRuntime:
         return tuple(records)
 
 
-    def record_review(self, fingerprint, decision, reason):
+    def record_review(self, fingerprint, decision, reason, proposal: SemanticDecision | None = None):
         config = self.load_self_config(DEFAULT_CONFIG, True)
         facts = self.collect_self_facts(config, PathOverrides())
         matches = [
             item
-            for item in check_semantic_review(facts, config.policy, ())
+            for item in self.semantic_review_findings(facts, config.policy)
             if violation_fingerprint(item) == fingerprint
         ]
         if not matches:
@@ -571,6 +576,14 @@ class LintelRuntime:
             "source": item.fields.get("source", ""),
             "location": item.fields.get("location", ""),
         }
+        if proposal is not None:
+            record.update(
+                confidence=proposal.confidence,
+                model=proposal.model,
+                schema_version=proposal.schema_version,
+                evidence_hash=proposal.evidence_hash,
+                state_hash=proposal.state_hash,
+            )
         records = self._write_decision_records((record,))
         return records[0]
 

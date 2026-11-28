@@ -10,30 +10,65 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from lintel.adapters.runtime import LintelRuntime
-from lintel.adapters import decision_model
-
+from lintel.adapters.runtime import LintelRuntime, SemanticDecisionError
 from lintel.adapters import lean_generator
 from lintel.core.model import (
     CheckFactsRequest,
+    DEFAULT_STAGES,
     PathOverrides,
+    STAGE_NAMES,
     SelfCheckRequest,
     violation_to_dict,
-    merge_decisions,
 )
 
 from lintel.core.use_cases.check_facts import run_check_facts
 from lintel.core.use_cases.self_check import run_self_check
-
+from lintel.core.use_cases.semantic_stage import semantic_stage
 from lintel.core import hooks, review
 
-def _emit(violations, output_format):
+
+def _parse_stages(value):
+    stages = tuple(part.strip() for part in value.split(",") if part.strip())
+    if not stages or any(stage not in STAGE_NAMES for stage in stages):
+        raise argparse.ArgumentTypeError(
+            "stages must be a non-empty subset of " + ", ".join(STAGE_NAMES)
+        )
+    return stages
+
+def _emit(violations, output_format, proposals=()):
     data = [violation_to_dict(item) for item in violations]
+    proposal_data = [
+        {
+            "fingerprint": item.fingerprint,
+            "decision": item.decision,
+            "reason": item.reason,
+            "confidence": item.confidence,
+            "model": item.model,
+            "schema_version": item.schema_version,
+            "evidence_hash": item.evidence_hash,
+            "state_hash": item.state_hash,
+        }
+        for item in proposals
+    ]
     if output_format == "json":
-        print(json.dumps(data, indent=2))
+        if proposals:
+            print(json.dumps({"violations": data, "proposals": proposal_data}, indent=2))
+        else:
+            print(json.dumps(data, indent=2))
     elif data:
         for item in data:
             print(f"{item['rule']}: {item['message']}")
+        for item in proposals:
+            print(
+                f"proposal: {item.fingerprint}: {item.decision} "
+                f"({item.confidence:.2f}) {item.reason}"
+            )
+    elif proposals:
+        for item in proposals:
+            print(
+                f"proposal: {item.fingerprint}: {item.decision} "
+                f"({item.confidence:.2f}) {item.reason}"
+            )
     else:
         print("OK: no architecture violations")
     return 1 if data else 0
@@ -46,22 +81,28 @@ def _check(args, runtime):
         config_required=args.config is not None,
         out=args.out,
         locked=args.locked,
+        stages=args.stages,
     )
-    if args.facts:
-        facts_request = CheckFactsRequest(
-            facts_path=args.facts,
-            config_path=None if args.policy else args.config,
-            policy_path=args.policy,
-            locked=args.locked,
-        )
-        violations = run_check_facts(
-            runtime, runtime, runtime, runtime, facts_request
-        )
-    else:
-        violations = run_self_check(
-            runtime, runtime, runtime, runtime, runtime, request
-        ).violations
-    return _emit(violations, args.format)
+    try:
+        if args.facts:
+            facts_request = CheckFactsRequest(
+                facts_path=args.facts,
+                config_path=None if args.policy else args.config,
+                policy_path=args.policy,
+                locked=args.locked,
+                stages=args.stages,
+            )
+            result = run_check_facts(
+                runtime, runtime, runtime, runtime, runtime, facts_request
+            )
+        else:
+            result = run_self_check(
+                runtime, runtime, runtime, runtime, runtime, runtime, request
+            )
+    except SemanticDecisionError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    return _emit(result.violations, args.format, result.proposals)
 
 
 
@@ -72,9 +113,10 @@ def _hook(args, runtime):
             config_path=args.config,
             config_required=True,
             locked=True,
+            stages=("deterministic",),
         )
         violations = run_self_check(
-            runtime, runtime, runtime, runtime, runtime, request
+            runtime, runtime, runtime, runtime, runtime, runtime, request
         ).violations
     result = hooks.build(args.event, violations)
     print(json.dumps(result, indent=2))
@@ -87,32 +129,24 @@ def _review(args, runtime):
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
-    record = runtime.record_review(args.fingerprint, args.decision, reason)
+    proposal = None
+    try:
+        config = runtime.load_self_config("lintel.toml", True)
+        facts = runtime.collect_self_facts(config, PathOverrides())
+        _, proposals = semantic_stage(
+            facts, config.policy, runtime, ("semantic",)
+        )
+        proposal = next(
+            (item for item in proposals if item.fingerprint == args.fingerprint),
+            None,
+        )
+    except SemanticDecisionError as error:
+        print(f"proposal unavailable: {error}", file=sys.stderr)
+    record = runtime.record_review(
+        args.fingerprint, args.decision, reason, proposal
+    )
     print(json.dumps(record, indent=2))
     return 0
-
-
-def _semantic_check(args, runtime):
-    contract_violations = tuple(runtime.validate_config(args.config))
-    contract_violations += tuple(runtime.verify_lock(args.config, True))
-    if contract_violations:
-        return _emit(contract_violations, args.format)
-    config = runtime.load_self_config(args.config, True)
-    facts = runtime.collect_self_facts(config, PathOverrides())
-    findings = runtime.semantic_review_findings(facts, config.policy)
-    try:
-        decisions = runtime.decision_model_decisions(findings, config.policy)
-    except decision_model.DecisionModelError as error:
-        print(f"semantic-check failed: {error}", file=sys.stderr)
-        return 2
-    if not args.no_record:
-        runtime.record_model_decisions(decisions, findings)
-    merged = merge_decisions(facts.decisions, decisions)
-    live = runtime.live_decision_fingerprints(findings, merged)
-    violations = runtime.apply_baseline(
-        runtime.check(facts, config.policy, merged), live
-    )
-    return _emit(violations, args.format)
 
 
 def main():
@@ -129,6 +163,12 @@ def main():
     check.add_argument("--locked", dest="locked", action="store_true", default=True)
     check.add_argument("--no-lock", dest="locked", action="store_false")
     check.add_argument("--no-cache", action="store_true", help="rebuild all facts")
+    check.add_argument(
+        "--stages",
+        type=_parse_stages,
+        default=DEFAULT_STAGES,
+        help="comma-separated stages: deterministic,semantic",
+    )
 
     init = commands.add_parser("init", help="scaffold a governed project")
     init.add_argument("--preset", default="clean")
@@ -158,14 +198,7 @@ def main():
     decision.add_argument("--decision", required=True, choices=review.DECISIONS)
     decision.add_argument("--reason", required=True)
 
-    semantic = commands.add_parser(
-        "semantic-check", help="resolve semantic reviews with a decision model"
-    )
-    semantic.add_argument("--config", default="lintel.toml")
-    semantic.add_argument("--format", choices=("text", "json"), default="text")
-    semantic.add_argument(
-        "--no-record", action="store_true", help="evaluate without changing the baseline"
-    )
+
 
     generate = commands.add_parser(
         "generate-lean", help="generate a finite Lean instance from facts"
@@ -212,8 +245,7 @@ def main():
         return _hook(args, runtime)
     if args.command == "review":
         return _review(args, runtime)
-    if args.command == "semantic-check":
-        return _semantic_check(args, runtime)
+
     if args.command == "generate-lean":
         policy = runtime.load_policy(args.config, None)
         if args.facts:
@@ -245,7 +277,7 @@ def main():
             locked=False,
         )
         violations = run_self_check(
-            runtime, runtime, runtime, runtime, runtime, request
+            runtime, runtime, runtime, runtime, runtime, runtime, request
         ).violations
         runtime.accept_baseline(args.config, violations)
         print(f"Accepted {len(violations)} baseline violations.")

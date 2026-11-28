@@ -34,8 +34,11 @@ def main():
         ),
         out=args.out,
         locked=args.locked,
+        stages=("deterministic",),
     )
-    result = run_self_check(runtime, runtime, runtime, runtime, runtime, request)
+    result = run_self_check(
+        runtime, runtime, runtime, runtime, runtime, runtime, request
+    )
     violations = [violation_to_dict(item) for item in result.violations]
     if violations:
         print(json.dumps(violations, indent=2))

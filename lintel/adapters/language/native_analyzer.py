@@ -33,6 +33,11 @@ RUST_PATTERNS = (
     ("io::stderr", "terminal_io", "mechanism"),
 )
 
+RUST_UNENUMERATED_CLI_PATTERNS = (
+    r"#\s*\[\s*derive\s*\([^)]*\bArgs\b[^)]*\)\s*\]",
+    r"#\s*\[\s*(?:command|clap)\b",
+)
+
 JAVASCRIPT_PATTERNS = (
     ("process.argv", "argv_parse", "entrypoint_only"),
     ("process.exit", "exit", "entrypoint_only"),
@@ -44,6 +49,11 @@ _GO_MAIN = re.compile(r"func\s+main\s*\(")
 _RUST_MAIN = re.compile(r"(?:pub\s+)?fn\s+main\s*\(")
 
 _RUST_CHAR = re.compile(r"'(\\[^\n]|[^'\\\n])'")
+
+_RUST_RAW_STRING_RE = re.compile(r'(?:br|r)(?P<hashes>#*)"')
+_RUST_BYTE_STRING_RE = re.compile(r'b"')
+_JS_REGEX_FLAGS = frozenset("dgimsuvy")
+_JS_REGEX_DELIMITERS = frozenset(";,)]} \t")
 
 _RUST_TERMINAL_MACROS = frozenset(
     {
@@ -111,8 +121,50 @@ _RUST_CFG_START_RE = re.compile(r"^#\s*\[\s*(?P<name>cfg|cfg_attr)\s*\(")
 _CFG_TOKEN_RE = re.compile(r"\s*(?P<token>&&|\|\||[(),=!]|[A-Za-z_][A-Za-z0-9_]*)")
 
 
+def _rust_string_opening(raw, index):
+    match = _RUST_RAW_STRING_RE.match(raw, index)
+    if match is not None:
+        return match.end() - index, len(match.group("hashes"))
+    if _RUST_BYTE_STRING_RE.match(raw, index):
+        return 2, 0
+    return 0, 0
+
+
+def _javascript_regex_end(raw, index):
+    escaped = False
+    position = index + 1
+    while position < len(raw):
+        char = raw[position]
+        if char == "\\":
+            escaped = not escaped
+            position += 1
+            continue
+        if char == "/" and not escaped:
+            after = position + 1
+            while after < len(raw) and raw[after] in _JS_REGEX_FLAGS:
+                after += 1
+            if after == len(raw) or raw[after] in _JS_REGEX_DELIMITERS:
+                return after
+            return None
+        escaped = False
+        position += 1
+    return None
+
+
+def _javascript_regex_allowed(result):
+    prefix = "".join(result).rstrip()
+    if not prefix:
+        return True
+    if prefix[-1] in "=([,:":
+        return True
+    return (
+        prefix.endswith("return")
+        and (len(prefix) == 6 or not (prefix[-7].isalnum() or prefix[-7] == "_"))
+    )
+
+
 def _mask_comments_and_strings(source, kind):
-    state = {"block": 0, "quote": None}
+    state = {"block": 0, "quote": None, "raw_hashes": 0}
     masked = []
     for raw in source.splitlines():
         chars = list(raw)
@@ -136,6 +188,17 @@ def _mask_comments_and_strings(source, kind):
                 index += 1
                 continue
             if state["quote"]:
+                if state["raw_hashes"]:
+                    closing = '"' + "#" * state["raw_hashes"]
+                    if raw[index : index + len(closing)] == closing:
+                        result.extend(" " * len(closing))
+                        index += len(closing)
+                        state["quote"] = None
+                        state["raw_hashes"] = 0
+                    else:
+                        result.append(" ")
+                        index += 1
+                    continue
                 if char == "\\" and state["quote"] != "`":
                     result.append(" ")
                     if index + 1 < len(chars):
@@ -157,6 +220,14 @@ def _mask_comments_and_strings(source, kind):
                 result.extend("  ")
                 index += 2
                 continue
+            if kind == "rust":
+                prefix_length, hashes = _rust_string_opening(raw, index)
+                if prefix_length:
+                    result.extend(" " * prefix_length)
+                    index += prefix_length
+                    state["quote"] = '"'
+                    state["raw_hashes"] = hashes
+                    continue
             if char == "'" and kind == "rust":
                 if not _RUST_CHAR.match(raw, index):
                     result.append(char)
@@ -167,9 +238,15 @@ def _mask_comments_and_strings(source, kind):
                 result.append(" ")
                 index += 1
                 continue
+            if kind == "javascript" and char == "/" and _javascript_regex_allowed(result):
+                end = _javascript_regex_end(raw, index)
+                if end is not None:
+                    result.extend(" " * (end - index))
+                    index = end
+                    continue
             result.append(char)
             index += 1
-        if state["quote"] and state["quote"] != "`":
+        if state["quote"] and state["quote"] != "`" and not state["raw_hashes"]:
             state["quote"] = None
         masked.append("".join(result))
     return masked
@@ -178,6 +255,12 @@ def _mask_comments_and_strings(source, kind):
 def _bounded_text(value, limit=64):
     compact = " ".join(str(value).split())
     return compact if len(compact) <= limit else compact[: limit - 3] + "..."
+
+
+def _pattern_matches(line, token):
+    if token.startswith("re:"):
+        return re.search(token[3:], line) is not None
+    return token in line
 
 
 def _cfg_and(left, right):
@@ -401,6 +484,9 @@ class NativeSourceAnalyzer:
         seen_concerns = set()
         seen_reviews = set()
         seen_macros = set()
+        macro_definition_line = None
+        macro_braces = 0
+        macro_hit = False
 
         # `scopes` holds the cfg state of brace-delimited items; `pending`
         # carries attributes on their own lines to the next item or statement.
@@ -446,9 +532,39 @@ class NativeSourceAnalyzer:
                 continue
 
             stripped = code.strip()
-            # macro_rules! expansion is already an unparsed_source fact from the
-            # Rust dependency extractor. Skip its text here instead of
-            # double-reporting or treating an unexpanded body as executable code.
+            inside_macro = macro_definition_line is not None
+            if not inside_macro and _RUST_MACRO_RULES_RE.search(code):
+                macro_definition_line = number
+                macro_braces = 0
+                macro_hit = False
+                inside_macro = True
+
+            if inside_macro:
+                macro_braces += code.count("{") - opening - (
+                    code.count("}") - closing
+                )
+                if _RUST_MACRO_RE.search(code) or any(
+                    _pattern_matches(code, token) for token, _, _ in RUST_PATTERNS
+                ):
+                    macro_hit = True
+                if macro_braces <= 0:
+                    if macro_hit:
+                        reviews.append(
+                            SemanticReview(
+                                module,
+                                relative_path,
+                                macro_definition_line,
+                                "macro_rules! body contains boundary-shaped token",
+                            )
+                        )
+                    macro_definition_line = None
+                    macro_braces = 0
+                    macro_hit = False
+                continue
+
+            # The Rust dependency extractor already emits unparsed_source for
+            # macro_rules! definitions; their bodies are consumed above so an
+            # unexpanded body is never read as executable code.
             if _RUST_MACRO_RULES_RE.search(code) is None:
                 if (
                     entrypoint is None
@@ -467,6 +583,18 @@ class NativeSourceAnalyzer:
                     if matched:
                         found.append((concern, category))
 
+                if not any(concern == "argv_parse" for concern, _ in found):
+                    for pattern in RUST_UNENUMERATED_CLI_PATTERNS:
+                        if re.search(pattern, stripped):
+                            reviews.append(
+                                SemanticReview(
+                                    module,
+                                    relative_path,
+                                    number,
+                                    "unresolved CLI framework idiom may parse argv",
+                                )
+                            )
+                            break
                 for match in _RUST_MACRO_RE.finditer(code):
                     path = re.sub(r"\s*::\s*", "::", match.group("path"))
                     kind = _rust_macro_kind(path)

@@ -1,6 +1,6 @@
 # Agentic semantic evaluation scenarios
 
-Status: inventory and decision-model decision contract; implemented scenarios use deterministic facts or bounded semantic reviews.
+Status: inventory and decision-model decision contract; implemented scenarios use deterministic facts or bounded semantic reviews, including unresolved aliases, unenumerated CLI idioms, masked native literals, macro bodies, declared wrapper chains, and staged/untracked policy diffs.
 
 Implementation status and deterministic extractor gaps live in [docs/limitations.md](docs/limitations.md).
 
@@ -55,6 +55,8 @@ know that `s` binds to `sys`.
 Expected judgment: `argv_parse`; if the owning module is not an entrypoint or
 an allowed region, `violation`.
 
+Current behavior: import aliases resolve deterministically; aliases rebound from unknown expressions emit a bounded `semantic_review`.
+
 ### SEM-02 Re-exported or rebound names
 
 ```python
@@ -66,6 +68,8 @@ Why semantic: the boundary concern is environment access even though the
 literal token `os.environ` is absent.
 
 Expected judgment: `env`; apply the configured `mechanism` allowed-region rule.
+
+Current behavior: literal re-export chains stay deterministic; boundary names rebound from unknown expressions emit one bounded `semantic_review` at the use site.
 
 ### SEM-03 Dynamic attribute or module access
 
@@ -124,6 +128,8 @@ conventions turn declarations into argv parsing.
 Expected judgment: recognize the framework idiom as `argv_parse`; if confidence
 is low, return `needs-human-review`.
 
+Current behavior: known framework decorators and Rust `Parser` derives stay deterministic; unknown `command`/`group` decorators and unenumerated clap idioms emit bounded `semantic_review`.
+
 ### SEM-06 Configuration libraries that read the environment
 
 ```python
@@ -149,6 +155,8 @@ ambiguous.
 Expected judgment: `allowed` for comments/strings; `violation` only for real
 code execution.
 
+Current behavior: comments, strings, Rust raw/byte strings, and JavaScript regex literals are masked before token matching; real boundary syntax is unchanged.
+
 ### SEM-08 Macros and generated code
 
 ```rust
@@ -161,6 +169,8 @@ written by the project.
 
 Expected judgment: resolve macro/generated origin; if origin is external and the
 file is declared generated/vendor, skip; otherwise apply the normal rule.
+
+Current behavior: known macros emit deterministic concerns; `macro_rules!` bodies are not expanded but emit one bounded review at the definition when they contain a boundary-shaped token.
 
 ### SEM-09 Dependency-injected boundary values
 
@@ -204,6 +214,8 @@ the analyzed platform. The judge needs configuration context before deciding.
 
 Expected judgment: evaluate the active configuration; unresolved conditions go
 to `needs-human-review`.
+
+Current behavior: custom and feature predicates remain unresolved, but they fail closed with one bounded review when they guard a boundary concern; inactive host-known branches stay silent.
 
 ### SEM-12 Terminal I/O through injected loggers
 
@@ -252,6 +264,8 @@ dependency is a port implementation.
 Expected judgment: `violation` if core depends on a mechanism leaking through;
 `allowed` only when the dependency is declared as an adapter mechanism.
 
+Current behavior: declared wrapper subprocess targets extend transitive propagation; unresolved declared targets in core wrappers emit one bounded `semantic_review`.
+
 ### SEM-16 Policy change that tries to legalize a concern
 
 A commit weakens `boundary_concerns.entrypoint_only.allowed_regions` while also
@@ -262,6 +276,8 @@ contract to hide a violation.
 
 Expected judgment: flag the combined diff for review. The judge cannot accept
 the new contract on behalf of a human.
+
+Current behavior: `git diff HEAD` plus untracked paths reviews staged or untracked concern additions paired with config weakening; non-git worktrees stay silent.
 
 ## Out of scope for the judge
 

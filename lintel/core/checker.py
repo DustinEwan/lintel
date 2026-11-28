@@ -3,7 +3,7 @@ from posixpath import splitext
 
 from . import review
 from .callgraph import concern_symbols, relevant_unresolved_reviews, resolve_calls
-from .model import BoundaryConcernUse, Region, SemanticReview, Violation, replace
+from .model import BoundaryConcernUse, Dependency, Region, SemanticReview, Violation, replace
 from .ratchet import violation_fingerprint
 from .rules import rule_spec
 
@@ -524,6 +524,15 @@ def _wrapper_module(facts, wrapper):
     )
 
 
+def _declared_wrapper_target(target, policy):
+    normalized = _normalized_path(target)
+    artifacts = {_normalized_path(item.source) for item in policy.build_artifacts}
+    stems = {splitext(item)[0] for item in artifacts}
+    wrappers = {item.wrapper for item in policy.build_artifacts}
+    commands = set(policy.wrapper_allowed_commands)
+    return target in wrappers or normalized in artifacts | stems or target in commands
+
+
 def _artifact_concerns(facts, source):
     normalized = _normalized_path(source)
     module = next(
@@ -730,14 +739,52 @@ def transitive_boundary_concerns(facts, policy):
         for item in facts.concerns
         if item.category == "mechanism" and not _excluded_source(item.source, facts, policy)
     ]
-    if not concerns:
-        return (), ()
+    reviews = []
+    local_dependencies = []
+    known_edges = {
+        (dep.source_module, dep.target_module) for dep in facts.dependencies
+    }
+    for item in facts.wrapper_operations:
+        if item.operation != "subprocess" or item.target == "unknown":
+            continue
+        if not _declared_wrapper_target(item.target, policy):
+            continue
+        target_module = _wrapper_module(facts, item.target)
+        if target_module is None:
+            if region_for(item.module, policy).core:
+                reviews.append(
+                    SemanticReview(
+                        item.module,
+                        item.source,
+                        item.line,
+                        _bounded_reason(
+                            f"SEM-15 wrapper target '{item.target}' cannot be resolved"
+                        ),
+                    )
+                )
+            continue
+        if not any(
+            concern.module == target_module.name and concern.category == "mechanism"
+            for concern in concerns
+        ):
+            continue
+        edge = (item.module, target_module.name)
+        if edge in known_edges:
+            continue
+        known_edges.add(edge)
+        local_dependencies.append(
+            Dependency(
+                item.module,
+                target_module.name,
+                source=item.source,
+                line=item.line,
+            )
+        )
 
     reverse = {}
-    for dep in facts.dependencies:
+    for dep in (*facts.dependencies, *local_dependencies):
         if dep.source_module and dep.target_module and dep.source_module != dep.target_module:
             reverse.setdefault(dep.target_module, []).append(dep)
-
     arrivals = {}
     allowed_mechanism = _mechanism_regions(policy)
     for concern in concerns:
@@ -778,7 +825,6 @@ def transitive_boundary_concerns(facts, policy):
                 break
 
     synthetic = {}
-    reviews = []
     for key, options in sorted(arrivals.items()):
         importer, concern_name, category = key
         chosen = min(options, key=lambda item: (item[2], item[3], item[0]))

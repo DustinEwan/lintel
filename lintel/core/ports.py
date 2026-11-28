@@ -4,6 +4,7 @@ Core use cases depend on these interfaces, never on CLI parsers, filesystems,
 subprocesses, or concrete extractors.
 """
 
+from dataclasses import replace
 from typing import Any, Protocol
 
 from .model import (
@@ -13,9 +14,12 @@ from .model import (
     Policy,
     SelfCheckRequest,
     SelfConfig,
+    SemanticDecision,
     SourceAnalysis,
     Violation,
+    merge_decisions,
 )
+from .review import is_accepting
 
 
 class SelfConfigPort(Protocol):
@@ -49,7 +53,57 @@ class PolicySourcePort(Protocol):
 
 
 class CheckerPort(Protocol):
-    def check(self, facts: FactSet, policy: Policy) -> tuple[Violation, ...]: ...
+    def check(
+        self,
+        facts: FactSet,
+        policy: Policy,
+        decisions: tuple[SemanticDecision, ...] = (),
+    ) -> tuple[Violation, ...]: ...
+
+
+
+
+class SemanticDecisionError(RuntimeError):
+    """A semantic/model stage could not produce trustworthy decisions."""
+
+
+class SemanticDecisionPort(Protocol):
+    def semantic_review_findings(
+        self, facts: FactSet, policy: Policy
+    ) -> tuple[Violation, ...]: ...
+
+    def propose_decisions(
+        self, findings: tuple[Violation, ...], policy: Policy
+    ) -> tuple[SemanticDecision, ...]: ...
+
+
+def advisory_decisions(
+    findings: tuple[Violation, ...],
+    proposals: tuple[SemanticDecision, ...],
+    facts: FactSet,
+) -> tuple[SemanticDecision, ...]:
+    """Keep model proposals from accepting a finding before human review."""
+    accepted = {item.fingerprint for item in facts.decisions}
+    return tuple(
+        replace(item, decision="needs-human-review")
+        for item in proposals
+        if item.fingerprint not in accepted
+    )
+
+
+def semantic_stage(
+    facts: FactSet,
+    policy: Policy,
+    decision_source: SemanticDecisionPort,
+    stages: tuple[str, ...],
+) -> tuple[tuple[Violation, ...], tuple[SemanticDecision, ...]]:
+    """Return findings and advisory proposals for the semantic stage."""
+    if "semantic" not in stages:
+        return (), ()
+    findings = decision_source.semantic_review_findings(facts, policy)
+    proposals = decision_source.propose_decisions(findings, policy)
+    merge_decisions(facts.decisions, advisory_decisions(findings, proposals, facts))
+    return findings, proposals
 
 
 class ContractPort(Protocol):
@@ -83,6 +137,11 @@ __all__ = [
     "FactCollectionPort",
     "FactSinkPort",
     "FactSourcePort",
+    "SemanticDecisionPort",
+    "SemanticDecisionError",
+    "advisory_decisions",
+    "semantic_stage",
+    "is_accepting",
     "SourceAnalyzerPort",
     "PolicySourcePort",
     "SelfConfigPort",

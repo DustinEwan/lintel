@@ -150,7 +150,7 @@ def _canonical_attribute(node, aliases):
     return _canonical_name(node, aliases, {})
 
 
-def _value_bindings(tree, aliases, imported):
+def _value_bindings(tree, aliases, imported, unresolved=frozenset()):
     """Resolve simple alias/re-export assignments to canonical dotted names."""
     resolved = dict(imported)
     for node in ast.walk(tree):
@@ -168,12 +168,52 @@ def _value_bindings(tree, aliases, imported):
             target, value = node.target.id, node.value
         else:
             continue
+        root = value
+        while isinstance(root, (ast.Attribute, ast.Subscript)):
+            root = root.value
+        stale = isinstance(root, ast.Name) and root.id in unresolved
         canonical = _canonical_name(value, aliases, resolved)
-        if canonical is None:
+        if canonical is None or stale:
             resolved.pop(target, None)
         else:
             resolved[target] = canonical
     return resolved
+
+
+def _unresolved_boundary_bindings(tree, aliases, imported):
+    """Names once bound to boundary state but later rebound to unknown values."""
+    initial = {
+        name
+        for name, target in {**aliases, **imported}.items()
+        if target in BOUNDARY_IMPORT_MODULES or target in BOUNDARY_ATTRIBUTES
+    }
+    resolved = dict(imported)
+    unresolved = set()
+    assignments = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            assignments.append((node.lineno, node.targets[0].id, node.value))
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            assignments.append((node.lineno, node.target.id, node.value))
+    for _, target, value in sorted(assignments, key=lambda item: item[0]):
+        canonical = _canonical_name(value, aliases, resolved)
+        if canonical is None:
+            resolved.pop(target, None)
+            if target in initial:
+                unresolved.add(target)
+        else:
+            resolved[target] = canonical
+            if target in initial and canonical in BOUNDARY_ATTRIBUTES:
+                unresolved.discard(target)
+    return frozenset(unresolved)
 
 
 def _boundary_concern(node, aliases, bindings):
@@ -221,6 +261,14 @@ def _unresolved_framework_names(aliases, imported):
         if any(marker in root for marker in UNRESOLVED_CLI_MARKERS):
             names.add(name)
     return names
+
+
+def _known_framework_names(aliases, imported):
+    return frozenset(
+        name
+        for name, target in {**aliases, **imported}.items()
+        if target.split(".", 1)[0] in ENTRYPOINT_ONLY_IMPORTS
+    )
 
 
 def _live_injected_use(function, name):
@@ -317,7 +365,8 @@ def _injected_boundary(tree, aliases, bindings, relative_path):
 
 def _concerns(tree, relative_path, env_call_patterns):
     aliases, imported, cli_frameworks = _import_context(tree)
-    bindings = _value_bindings(tree, aliases, imported)
+    unresolved = _unresolved_boundary_bindings(tree, aliases, imported)
+    bindings = _value_bindings(tree, aliases, imported, unresolved)
     found = set()
 
     for node in ast.walk(tree):
@@ -351,7 +400,13 @@ def _concerns(tree, relative_path, env_call_patterns):
                 if explicit_cli or framework_command:
                     found.add(("argv_parse", "entrypoint_only", node.lineno))
 
-        concern = _boundary_concern(node, aliases, bindings)
+        concern = None
+        if not (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in unresolved
+        ):
+            concern = _boundary_concern(node, aliases, bindings)
         if concern is not None:
             found.add((*concern, node.lineno))
         reflected = _reflection_target(node, aliases, bindings)
@@ -424,11 +479,27 @@ def _wrapper_operations(tree, module):
 
 
 def _semantic_reviews(tree, module, relative_path):
-    aliases, imported, cli_frameworks = _import_context(tree)
-    bindings = _value_bindings(tree, aliases, imported)
+    aliases, imported, _ = _import_context(tree)
+    unresolved = _unresolved_boundary_bindings(tree, aliases, imported)
+    bindings = _value_bindings(tree, aliases, imported, unresolved)
     parents = _parents(tree)
     reviews = set()
     if not _is_review_exempt_path(relative_path):
+        for node in ast.walk(tree):
+            name = None
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                if node.attr in REFLECTED_ATTRIBUTE_NAMES:
+                    name = node.value.id
+            elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+                if imported.get(node.value.id) in BOUNDARY_ATTRIBUTES:
+                    name = node.value.id
+            if name in unresolved:
+                reviews.add(
+                    (
+                        node.lineno,
+                        f"unresolved alias '{name}' may expose boundary state",
+                    )
+                )
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.ImportFrom)
@@ -439,28 +510,35 @@ def _semantic_reviews(tree, module, relative_path):
                     (node.lineno, f"wildcard import from {node.module} may expose boundary state")
                 )
 
-        if not cli_frameworks:
-            unknown_frameworks = _unresolved_framework_names(aliases, imported)
-            for node in ast.walk(tree):
-                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        known_frameworks = _known_framework_names(aliases, imported)
+        unknown_frameworks = _unresolved_framework_names(aliases, imported)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for decorator in node.decorator_list:
+                expression = ast.unparse(decorator)
+                is_command = expression in {
+                    "command",
+                    "command()",
+                    "group",
+                    "group()",
+                } or expression.endswith(
+                    (".command", ".command()", ".group", ".group()")
+                )
+                if not is_command:
                     continue
-                for decorator in node.decorator_list:
-                    expression = ast.unparse(decorator)
-                    is_command = expression in {"command", "command()"} or expression.endswith(
-                        (".command", ".command()")
+                target = decorator.func if isinstance(decorator, ast.Call) else decorator
+                root = (
+                    target.value.id
+                    if isinstance(target, ast.Attribute)
+                    else getattr(target, "id", "")
+                )
+                if root in known_frameworks:
+                    continue
+                if root in unknown_frameworks:
+                    reviews.add(
+                        (node.lineno, "unresolved CLI framework decorator may parse argv")
                     )
-                    if not is_command:
-                        continue
-                    target = decorator.func if isinstance(decorator, ast.Call) else decorator
-                    root = (
-                        target.value.id
-                        if isinstance(target, ast.Attribute)
-                        else getattr(target, "id", "")
-                    )
-                    if root in unknown_frameworks:
-                        reviews.add(
-                            (node.lineno, "unresolved CLI framework decorator may parse argv")
-                        )
 
     for node in ast.walk(tree):
         if (

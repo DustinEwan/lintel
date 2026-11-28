@@ -1,10 +1,12 @@
 import json
 import os
+import io
 import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,6 +20,7 @@ from lintel.adapters import rust_extractor
 from lintel.adapters import go_extractor
 from lintel.adapters import contract_facts, decision_model
 from lintel.core import hooks, review
+from lintel.cli import main as cli_main
 from lintel.adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from lintel.adapters.runtime import LintelRuntime, merge_facts
 from lintel.core.callgraph import concern_symbols, resolve_calls
@@ -1624,5 +1627,164 @@ class GoExtractorTests(unittest.TestCase):
                 ["unterminated import block"],
             )
 
+
+
+class StagedPipelineCliTests(unittest.TestCase):
+    def _fixture(self, directory):
+        runtime = LintelRuntime(directory)
+        runtime.scaffold("clean", directory)
+        path = os.path.join(directory, "adapters", "review_me.py")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(
+                "import os\nattribute = \"environ\"\nvalue = getattr(os, attribute)\n"
+            )
+        return runtime
+
+    def _snapshot(self, directory):
+        values = []
+        for name in ("lintel.baseline.json", "lintel.lock"):
+            path = os.path.join(directory, name)
+            if not os.path.isfile(path):
+                values.append(None)
+                continue
+            with open(path, "rb") as handle:
+                values.append(handle.read())
+        return tuple(values)
+
+    def _evaluator(self, decision):
+        def evaluate(findings, policy, root=None, opener=None):
+            return tuple(
+                SemanticDecision(
+                    violation_fingerprint(item),
+                    decision,
+                    "model rationale",
+                    0.99,
+                    "test/model",
+                    "2",
+                    "evidence",
+                    "state",
+                )
+                for item in findings
+            )
+
+        return evaluate
+
+    def _fingerprint(self, directory):
+        runtime = LintelRuntime(directory)
+        runtime.use_cache = False
+        config = runtime.load_self_config("lintel.toml", True)
+        facts = runtime.collect_self_facts(config, PathOverrides())
+        findings = runtime.semantic_review_findings(facts, config.policy)
+        self.assertTrue(findings)
+        return violation_fingerprint(findings[0])
+
+    def _run_cli(self, directory, arguments, evaluator):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        argv = ["lintel", "--root", directory, *arguments]
+        with patch.object(sys, "argv", argv), patch.object(
+            decision_model, "evaluate", side_effect=evaluator
+        ), redirect_stdout(stdout), redirect_stderr(stderr):
+            code = cli_main.main()
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_default_check_reports_advisory_proposal_without_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._fixture(directory)
+            before = self._snapshot(directory)
+            code, output, _ = self._run_cli(
+                directory, ["check", "--format", "text"], self._evaluator("compliant")
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("semantic_review", output)
+            self.assertIn("proposal:", output)
+            self.assertIn("compliant", output)
+            self.assertEqual(self._snapshot(directory), before)
+
+    def test_deterministic_stage_skips_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._fixture(directory)
+            path = os.path.join(directory, "adapters", "deterministic.py")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("import argparse\nparser = argparse.ArgumentParser()\n")
+            evaluator = AssertionError("provider must not be called")
+            code, output, _ = self._run_cli(
+                directory,
+                ["check", "--stages", "deterministic", "--format", "text"],
+                evaluator,
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("argv_parse", output)
+
+    def test_missing_api_key_exits_two_without_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._fixture(directory)
+            before = self._snapshot(directory)
+            evaluator = decision_model.DecisionModelError(
+                "missing API key in environment: OPENROUTER_API_KEY"
+            )
+            code, _, error = self._run_cli(
+                directory, ["check", "--format", "text"], evaluator
+            )
+            self.assertEqual(code, 2)
+            self.assertIn("missing API key", error)
+            self.assertEqual(self._snapshot(directory), before)
+
+    def test_review_acceptance_copies_proposal_and_clears_finding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._fixture(directory)
+            fingerprint = self._fingerprint(directory)
+            evaluator = self._evaluator("compliant")
+            code, _, _ = self._run_cli(
+                directory,
+                [
+                    "review",
+                    fingerprint,
+                    "--decision",
+                    "compliant",
+                    "--reason",
+                    "approved by owner",
+                ],
+                evaluator,
+            )
+            self.assertEqual(code, 0)
+            baseline = os.path.join(directory, "lintel.baseline.json")
+            with open(baseline, encoding="utf-8") as handle:
+                data = json.load(handle)
+            record = data["decisions"][0]
+            self.assertEqual(record["confidence"], 0.99)
+            self.assertEqual(record["model"], "test/model")
+            self.assertEqual(record["evidence_hash"], "evidence")
+            self.assertEqual(record["state_hash"], "state")
+            self.assertEqual(data["violations"][0]["fingerprint"], fingerprint)
+            code, output, _ = self._run_cli(
+                directory, ["check", "--format", "text"], evaluator
+            )
+            self.assertNotIn("semantic_review", output)
+            self.assertNotIn("baseline_stale", output)
+
+    def test_review_rejection_keeps_finding_visible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._fixture(directory)
+            fingerprint = self._fingerprint(directory)
+            evaluator = self._evaluator("compliant")
+            code, _, _ = self._run_cli(
+                directory,
+                [
+                    "review",
+                    fingerprint,
+                    "--decision",
+                    "violating",
+                    "--reason",
+                    "confirmed violation",
+                ],
+                evaluator,
+            )
+            self.assertEqual(code, 0)
+            code, output, _ = self._run_cli(
+                directory, ["check", "--format", "text"], evaluator
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("semantic decision violating", output)
 if __name__ == "__main__":
     unittest.main()

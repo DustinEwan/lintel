@@ -67,10 +67,10 @@ Detected cases produce `semantic_review` with the source location and reason.
 `semantic_review` is baselineable because the outcome of review is a model or
 human decision, not an automatic pass. `lintel --root <dir> review <fingerprint>
 --decision compliant|violating|needs-human-review --reason <reason>` records a human decision.
-`lintel semantic-check` records high-confidence typed model decisions with audit
-fields. `compliant` accepts the finding and records its source for generated Lean;
-the other decisions leave it pending. Every decision requires a reason and relocks
-the baseline. The deterministic checker does not guess.
+`lintel check` reports advisory model proposals but never commits them; only
+`lintel review` accepts a finding and records its source for generated Lean.
+Every decision requires a reason and relocks the baseline. The deterministic
+checker does not guess.
 
 ## 5. Policy evolution
 

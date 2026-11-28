@@ -221,6 +221,10 @@ class SelfConfig:
     scope_conventions: dict[str, str] = field(default_factory=dict)
 
 
+STAGE_NAMES = ("deterministic", "semantic")
+DEFAULT_STAGES = STAGE_NAMES
+
+
 @dataclass(frozen=True)
 class SelfCheckRequest:
     config_path: str
@@ -228,12 +232,14 @@ class SelfCheckRequest:
     overrides: PathOverrides = field(default_factory=PathOverrides)
     out: str | None = None
     locked: bool = True
+    stages: tuple[str, ...] = DEFAULT_STAGES
 
 
 @dataclass(frozen=True)
 class SelfCheckResult:
     facts: FactSet
     violations: tuple[Violation, ...]
+    proposals: tuple[SemanticDecision, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -242,6 +248,7 @@ class CheckFactsRequest:
     config_path: str | None = None
     policy_path: str | None = None
     locked: bool = True
+    stages: tuple[str, ...] = DEFAULT_STAGES
 
 
 def facts_to_dict(facts):

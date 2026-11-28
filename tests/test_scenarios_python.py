@@ -25,6 +25,27 @@ class PythonScenarioTests(unittest.TestCase):
         self.assertEqual(concern_lines(analysis, "env"), [1, 2, 3])
         self.assertEqual(analysis.reviews, ())
 
+
+    def test_sem01_rebound_module_alias_is_reviewed_not_deterministic(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "adapters/sample.py",
+            "import os as s\ns = factory()\nvalue = s.environ\n",
+        )
+        self.assertEqual(concern_lines(analysis, "env"), [])
+        self.assertEqual(len(analysis.reviews), 1)
+        self.assertEqual(analysis.reviews[0].line, 3)
+        self.assertIn("unresolved alias 's'", analysis.reviews[0].reason)
+
+    def test_sem02_rebound_from_import_subscript_is_reviewed(self):
+        analysis = PythonSourceAnalyzer().analyze(
+            "adapters/sample.py",
+            "from os import environ as env\nenv = factory()\nhome = env[\"HOME\"]\n",
+        )
+        self.assertEqual(concern_lines(analysis, "env"), [1])
+        self.assertEqual(len(analysis.reviews), 1)
+        self.assertEqual(analysis.reviews[0].line, 3)
+        self.assertIn("unresolved alias 'env'", analysis.reviews[0].reason)
+
     def test_sem02_wildcard_boundary_import_is_reviewed(self):
         analysis = PythonSourceAnalyzer().analyze(
             "adapters/sample.py", "from os import *\nvalue = environ\n"
@@ -55,6 +76,36 @@ class PythonScenarioTests(unittest.TestCase):
         )
         entrypoint = PythonSourceAnalyzer().analyze("lintel/cli/sample.py", source)
         self.assertEqual(entrypoint.reviews, ())
+
+    def test_sem05_unknown_group_decorator_is_reviewed(self):
+        source = (
+            "from acme_cli import app\n"
+            "@app.group()\n"
+            "def run():\n"
+            "    return 1\n"
+        )
+        adapter = PythonSourceAnalyzer().analyze("adapters/sample.py", source)
+        self.assertEqual(len(adapter.reviews), 1)
+        self.assertIn("unresolved CLI framework", adapter.reviews[0].reason)
+        entrypoint = PythonSourceAnalyzer().analyze("lintel/cli/sample.py", source)
+        self.assertEqual(entrypoint.reviews, ())
+
+    def test_sem05_known_import_does_not_hide_unrelated_framework(self):
+        source = (
+            "import click\n"
+            "from acme_cli import app\n"
+            "@click.command()\n"
+            "def known():\n"
+            "    return 1\n"
+            "@app.group()\n"
+            "def run():\n"
+            "    return 2\n"
+        )
+        analysis = PythonSourceAnalyzer().analyze("adapters/sample.py", source)
+        self.assertIn(4, concern_lines(analysis, "argv_parse"))
+        self.assertEqual(len(analysis.reviews), 1)
+        self.assertEqual(analysis.reviews[0].line, 7)
+        self.assertIn("unresolved CLI framework", analysis.reviews[0].reason)
 
     def test_sem05_plain_decorator_without_framework_is_silent(self):
         analysis = PythonSourceAnalyzer().analyze(

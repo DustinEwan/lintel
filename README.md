@@ -84,7 +84,47 @@ flowchart LR
 
 `ports` and `core` are core; `platform` covers language runtime primitives; `entrypoints`, `adapters`, and `infrastructure` are outer rings. Ports are contracts and boundary data owned by core. `tests/fixtures/policy.json` is an example JSON policy covering Rust, Go, and TypeScript module names.
 
-Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); semantic ambiguity scenarios are listed in [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md), and the decision-model contract is in [docs/semantic-decisions.md](docs/semantic-decisions.md).
+Exception rules are formalized in [ESCAPE_HATCHES.md](ESCAPE_HATCHES.md); see [Semantic scenarios and decision model](#semantic-scenarios-and-decision-model) for the overview, [SEMANTIC_SCENARIOS.md](SEMANTIC_SCENARIOS.md) for the detailed catalog, [docs/semantic-decisions.md](docs/semantic-decisions.md) for the model contract, and [docs/limitations.md](docs/limitations.md) for current status.
+
+
+## Semantic scenarios and decision model
+
+Deterministic analyzers cover syntax-shaped facts: declared imports, literals,
+known framework calls, and build artifacts. Semantic scenarios cover valid
+syntax whose intent cannot be proved from source alone, such as rebound aliases,
+unknown CLI decorators, macro bodies, dynamic reflection, and staged policy
+changes. Ambiguous cases become `semantic_review` findings, never a silent pass.
+
+Default `lintel check` runs deterministic checks plus the semantic/model stage
+and emits proposed decisions. Proposals are advisory: a `compliant` proposal
+does not suppress a finding until `lintel review` accepts it; `violating` and
+`needs-human-review` keep the finding visible. Hooks and CI use
+`lintel check --stages deterministic` so they need no API key or network call.
+Uncertainty fails closed, and the model cannot edit source, config, policy, or
+the lock.
+
+```toml
+[semantic_decision]
+model = "liquid/d1.2"
+endpoint = "https://openrouter.ai/api/alpha/decisions"
+api_key_env = "OPENROUTER_API_KEY"
+answer_key = "decision"
+min_confidence = 0.85
+timeout = 20
+max_findings = 64
+```
+
+The config stores only the environment-variable name, not the key. Changing
+the `[semantic_decision]` table requires `lintel update-lock`.
+
+```sh
+lintel check
+lintel check --stages deterministic
+lintel review <fingerprint> --decision compliant|violating|needs-human-review --reason <reason>
+```
+
+`lintel review` is the only command that commits an accepted exception and
+updates `lintel.lock`.
 
 ### Install and usage
 

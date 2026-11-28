@@ -103,21 +103,24 @@ extraction with guesswork remains out of scope.
 ## Commands
 
 ```sh
-lintel semantic-check
-lintel semantic-check --format json
-lintel semantic-check --no-record
+lintel check
+lintel check --format json
+lintel check --stages deterministic
+lintel review <fingerprint> --decision compliant|violating|needs-human-review --reason <reason>
 ```
 
 `model` is passed verbatim to the configured endpoint; no provider or model
 allowlist is hardcoded.
 
-`semantic-check` collects facts, asks the decision model about current
-`semantic_review` findings, validates the typed answers, and records
-high-confidence decisions. `--no-record` evaluates without mutating the
-baseline. Provider failures exit nonzero and leave the baseline unchanged.
+`lintel check` collects facts, runs deterministic and semantic stages, asks the
+decision model about current `semantic_review` findings, and validates the
+typed answers. Proposals are advisory: a compliant proposal does not accept a
+finding until `lintel review` records that decision. `--stages deterministic`
+skips the provider entirely. Provider failures exit 2 and leave the baseline
+and lock unchanged.
 
-The aggregate checker receives decisions explicitly. Ordinary `lintel check`
-passes none, so deterministic checks stay independent of recorded decisions.
+The aggregate checker receives recorded decisions explicitly. Proposals are
+reported to the user but cannot suppress a finding before acceptance.
 
 The API key is read from the environment variable named by
 `semantic_decision.api_key_env`; no key is stored in config, facts, or lock.

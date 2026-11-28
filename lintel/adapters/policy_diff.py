@@ -26,6 +26,27 @@ def _git_text(root, *arguments):
     return result.stdout
 
 
+def _normalized_source(path):
+    value = str(path or "").replace("\\", "/")
+    return value[2:] if value.startswith("./") else value
+
+
+def _untracked_paths(root, *paths):
+    output = _git_text(
+        root, "ls-files", "--others", "--exclude-standard", "--", *paths
+    )
+    if output is None:
+        return frozenset()
+    return frozenset(
+        path
+        for path in (_normalized_source(item) for item in output.splitlines())
+        if path
+        and path != "/dev/null"
+        and not path.startswith("tests/")
+        and not path.endswith("policy_diff.py")
+    )
+
+
 def _added_locations(diff):
     """Yield (path, line) for added lines in a unified diff."""
     path = None
@@ -113,7 +134,7 @@ def _policy_weakened(before, after):
 
 def detect(root, facts, config_path="lintel.toml"):
     """Return a review when policy is weakened together with new boundary use."""
-    config_diff = _git_text(root, "diff", "--no-ext-diff", "--unified=0", "--", config_path)
+    config_diff = _git_text(root, "diff", "HEAD", "--no-ext-diff", "--unified=0", "--", config_path)
     if not config_diff:
         return ()
     baseline = _git_text(root, "show", f"HEAD:{config_path}")
@@ -135,17 +156,17 @@ def detect(root, facts, config_path="lintel.toml"):
         return ()
 
     source_diff = _git_text(
-        root, "diff", "--no-ext-diff", "--unified=0", "--", "lintel", "adapters", "cli"
+        root, "diff", "HEAD", "--no-ext-diff", "--unified=0", "--"
     )
     if not source_diff:
         return ()
     added = set(_added_locations(source_diff))
+    untracked = _untracked_paths(root)
     matches = [
         item
         for item in facts.concerns
-        if item.concern == "argv_parse"
-        and not item.source.startswith(("cli/", "lintel/cli/"))
-        and ((item.source, item.line) in added or (item.module, item.line) in added)
+        if (item.source, item.line) in added
+        or _normalized_source(item.source) in untracked
     ]
     if not matches:
         return ()

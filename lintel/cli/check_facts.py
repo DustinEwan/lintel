@@ -33,10 +33,13 @@ def main():
         config_path=args.config,
         policy_path=args.policy,
         locked=args.locked,
+        stages=("deterministic",),
     )
     violations = [
         violation_to_dict(item)
-        for item in run_check_facts(runtime, runtime, runtime, runtime, request)
+        for item in run_check_facts(
+            runtime, runtime, runtime, runtime, runtime, request
+        ).violations
     ]
 
     if args.json:
