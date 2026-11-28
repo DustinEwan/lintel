@@ -277,8 +277,15 @@ lintel init --preset clean --output /path/to/new-project  # new projects only
 lintel check
 lintel check --out facts.json
 lintel check facts.json --config lintel.toml
+lintel impact --module lintel.core.checker
+lintel concerns --module lintel.core.checker
+lintel review-drift --before facts-before.json
 lintel generate-lean --facts facts.json
 ```
+
+`impact`, `concerns`, and `review-drift` are read-only JSON queries over the
+same `GraphIndex` that `check` uses. They help agents plan changes, trace
+concern propagation, and detect accepted reviews whose graph context changed.
 
 `--root` defaults to the current directory; set it only when running elsewhere.
 

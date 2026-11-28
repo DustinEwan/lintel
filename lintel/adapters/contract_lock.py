@@ -37,6 +37,7 @@ CHECKER_ARTIFACTS = (
     "adapters/diagnostics.py",
     "adapters/extract_common.py",
     "adapters/runtime.py",
+    "adapters/graph_queries.py",
     "adapters/source_graph.py",
     "adapters/source_graph_go.py",
     "adapters/source_graph_python.py",

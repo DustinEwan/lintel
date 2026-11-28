@@ -11,6 +11,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from lintel.adapters.runtime import LintelRuntime, SemanticDecisionError
+from lintel.adapters import graph_queries
 from lintel.adapters import release as release_adapter
 from lintel.core.version import version_status
 from lintel.adapters import lean_generator
@@ -112,6 +113,20 @@ def _check(args, runtime):
         root=runtime.root,
     )
 
+
+
+def _query_context(args, runtime, with_policy=True):
+    if getattr(args, "facts", None):
+        facts = runtime.load_facts(args.facts)
+    else:
+        config = runtime.load_self_config(args.config, True)
+        facts = runtime.collect_self_facts(config, PathOverrides())
+    policy = runtime.load_policy(args.config, None) if with_policy else None
+    return facts, policy
+
+
+def _emit_query(value):
+    print(json.dumps(value, indent=2))
 
 
 def _hook(args, runtime):
@@ -223,6 +238,30 @@ def main():
     explain = commands.add_parser("explain", help="explain one rule")
     explain.add_argument("rule")
 
+    impact = commands.add_parser(
+        "impact", help="show reverse dependency and caller impact"
+    )
+    target = impact.add_mutually_exclusive_group(required=True)
+    target.add_argument("--module")
+    target.add_argument("--symbol")
+    impact.add_argument("--facts", help="query saved facts instead of collecting")
+    impact.add_argument("--config", default="lintel.toml")
+    impact.add_argument("--no-cache", action="store_true", help="rebuild all facts")
+
+    concerns = commands.add_parser("concerns", help="trace boundary concerns")
+    concerns.add_argument("--module", help="filter to one module")
+    concerns.add_argument("--facts", help="query saved facts instead of collecting")
+    concerns.add_argument("--config", default="lintel.toml")
+    concerns.add_argument("--no-cache", action="store_true", help="rebuild all facts")
+
+    drift = commands.add_parser(
+        "review-drift", help="detect stale accepted semantic reviews"
+    )
+    drift.add_argument("--before", required=True, help="baseline facts JSON")
+    drift.add_argument("--facts", help="current facts JSON; default collects")
+    drift.add_argument("--config", default="lintel.toml")
+    drift.add_argument("--no-cache", action="store_true", help="rebuild all facts")
+
     lock = commands.add_parser("update-lock", help="rewrite the contract lock")
     lock.add_argument("--config", default="lintel.toml")
 
@@ -283,6 +322,23 @@ def main():
             print(f"unknown rule: {args.rule}", file=sys.stderr)
             return 2
         print(json.dumps(item, indent=2))
+        return 0
+    if args.command == "impact":
+        facts, policy = _query_context(args, runtime)
+        if args.module:
+            result = graph_queries.module_impact(facts, policy, args.module)
+        else:
+            result = graph_queries.symbol_impact(facts, policy, args.symbol)
+        _emit_query(result)
+        return 0
+    if args.command == "concerns":
+        facts, _ = _query_context(args, runtime, with_policy=False)
+        _emit_query(graph_queries.concern_context(facts, args.module))
+        return 0
+    if args.command == "review-drift":
+        before = runtime.load_facts(args.before)
+        current, _ = _query_context(args, runtime, with_policy=False)
+        _emit_query(graph_queries.review_drift(before, current))
         return 0
     if args.command == "hook":
         return _hook(args, runtime)

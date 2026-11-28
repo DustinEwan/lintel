@@ -27,6 +27,10 @@ python -m pip install .
 | Accept a clean baseline update | `lintel accept-baseline` |
 | Generate and check a Lean instance | `lintel generate-lean --out /path/to/LintelFacts.lean` |
 | Generate without the Lean toolchain | `lintel generate-lean --out /path/to/LintelFacts.lean --no-check` |
+| Show reverse dependency impact | `lintel impact --module lintel.core.checker` |
+| Show caller impact | `lintel impact --symbol <key>` |
+| Trace boundary concerns | `lintel concerns --module lintel.core.checker` |
+| Detect stale accepted reviews | `lintel review-drift --before facts-before.json` |
 
 `check --out facts.json` writes merged facts only after config and lock validation succeed. Rechecking a facts file with `--config`—the default `lintel.toml` or an explicit path—validates the lock and applies the baseline. `--policy` is fixture compatibility and skips lock and baseline handling.
 
