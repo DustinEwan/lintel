@@ -26,11 +26,22 @@ These limits remain true, but Lintel fails closed or provides a reviewed path in
 | Native tokens in comments/strings | Native analyzers mask comments and strings before token matching | Regex literals and unusual quoting remain heuristic |
 | Declarative CLI idioms | Rust `#[derive(...Parser...)]` and typer/click-gated `.command()` decorators are flagged as `argv_parse` | Unenumerated framework idioms remain undetected |
 | SEM-04 helper laundering in Python | Python `ast` emits symbols, import bindings, and call sites; the core resolver follows uniquely resolved calls and emits `semantic_review` only for calls that may reach a locally defined concern-bearing helper | Dynamic, ambiguous, and cross-language helpers remain unresolved |
+| SEM-02 local re-export/rebind chains | Python analyzer canonicalizes literal assignment chains before concern matching | Dynamic rebinding and cross-language aliases remain unresolved |
+| SEM-03 literal reflection | `getattr(module, "name")` and literal `importlib.import_module(...).name` resolve to concerns | Dynamic attribute names remain `semantic_review` |
+| SEM-06 configured env-reading calls | `[analysis].env_call_patterns` installs dotted call names as `env` mechanisms | No library is assumed to read env without configuration |
+| SEM-08 Rust macro origins | Known terminal/logging macros emit concerns; unknown macros emit `semantic_review`; generated/vendor scopes are skipped by policy-based scope filtering | Unexpanded macro bodies remain outside extraction |
+| SEM-09 injected boundary values | Core functions with live parser/environment/module annotations emit concerns; ambiguous self-stored values emit `semantic_review` | Unannotated dependency injection remains undetected |
+| SEM-10 wrapper-to-native attribution | Declared build artifacts attribute native concerns to their wrapper invocation; undeclared artifacts are violations | Indirect invocation chains remain unresolved |
+| SEM-11 Rust `#[cfg]` | Host-known `unix`/`windows` predicates exclude inactive code; unresolved predicates guarding concerns emit `semantic_review` | Custom predicates and feature flags are not evaluated |
+| SEM-12 logging stream handlers | `logging.StreamHandler` and `basicConfig(stream=...)` emit `terminal_io` | Plain logging stays a mechanism concern |
+| SEM-15 transitive boundary access | Core checker propagates only mechanism concerns backward up to depth three over deterministic dependency edges; allowed mechanism use in adapters remains compliant | Cross-language or package-metadata-only chains remain outside the fact set |
+| SEM-16 combined policy/concern diff | Runtime fact collection emits `semantic_review` when git diff weakens boundary policy alongside a new concern | Non-git, untracked, or ambiguous diffs stay silent; the decision model cannot accept the new contract |
 
-The remaining scenarios in `SEMANTIC_SCENARIOS.md` still need library-metadata,
-dependency-injection, transitive-dependency, or combined-diff analysis. SEM-04
-is covered only for uniquely resolved Python calls; unresolved cases still fail
-closed through `unparsed_source` or remain pending `semantic_review`.
+The scenarios in `SEMANTIC_SCENARIOS.md` are covered by deterministic facts or
+bounded semantic reviews where syntax and available facts permit. Dynamic
+reflection, ambiguous injection, unexpanded macros, unresolvable cfg
+predicates, and mixed-path transitive chains still fail closed through
+`semantic_review` or `unparsed_source`; none are silently treated as compliant.
 
 ## 2. Intentional formal-model trust boundaries
 

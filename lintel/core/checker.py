@@ -3,7 +3,7 @@ from posixpath import splitext
 
 from . import review
 from .callgraph import concern_symbols, relevant_unresolved_reviews, resolve_calls
-from .model import BoundaryConcernUse, Region, Violation, replace
+from .model import BoundaryConcernUse, Region, SemanticReview, Violation, replace
 from .ratchet import violation_fingerprint
 from .rules import rule_spec
 
@@ -372,6 +372,8 @@ def check_boundary_concerns(facts, policy):
     violations = []
     seen = set()
     for item in facts.concerns:
+        if _excluded_source(item.source, facts, policy):
+            continue
         region = region_for(item.module, policy)
         scopes = _scope_names(item.source, facts)
         key = (item.module, item.concern, item.source, item.line)
@@ -486,6 +488,333 @@ def check_wrapper_operations(facts, policy):
     return tuple(violations)
 
 
+MAX_TRANSITIVE_DEPTH = 3
+BOUNDARY_REVIEW_CHARS = 200
+_DEFAULT_MECHANISM_REGIONS = ("adapters", "infrastructure", "entrypoints", "external")
+
+
+def _bounded_reason(reason):
+    text = " ".join(str(reason).split())
+    if len(text) <= BOUNDARY_REVIEW_CHARS:
+        return text
+    return text[: BOUNDARY_REVIEW_CHARS - 3] + "..."
+
+
+def _normalized_path(path):
+    return str(path or "").replace("\\", "/").lstrip("./")
+
+
+def _wrapper_module(facts, wrapper):
+    names = {wrapper, module_name_from_path(wrapper)}
+    candidates = []
+    for module in facts.modules:
+        path_name = module_name_from_path(module.path)
+        if (
+            module.name in names
+            or path_name in names
+            or module.name.endswith("." + wrapper)
+            or path_name.endswith("." + wrapper)
+        ):
+            candidates.append(module)
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda item: (0 if item.path.endswith(".py") else 1, item.path),
+    )
+
+
+def _artifact_concerns(facts, source):
+    normalized = _normalized_path(source)
+    module = next(
+        (item for item in facts.modules if _normalized_path(item.path) == normalized),
+        None,
+    )
+    names = {module_name_from_path(source)}
+    if module is not None:
+        names.add(module.name)
+    return [
+        item
+        for item in facts.concerns
+        if _normalized_path(item.source) == normalized or item.module in names
+    ]
+
+
+def _is_wrapper_invocation(item, wrapper_module, wrapper, artifact_source, policy):
+    if item.operation != "subprocess" or item.target == "unknown":
+        return False
+    names = {wrapper, module_name_from_path(wrapper)}
+    if wrapper_module is not None:
+        names.update(
+            (wrapper_module.name, module_name_from_path(wrapper_module.path))
+        )
+    if item.module not in names and module_name_from_path(item.source) not in names:
+        return False
+    target = _normalized_path(item.target)
+    artifact = _normalized_path(artifact_source)
+    stem = splitext(artifact)[0]
+    basename = artifact.rsplit("/", 1)[-1]
+    stem_name = stem.rsplit("/", 1)[-1]
+    if target in {artifact, stem} or target.endswith(
+        ("/" + basename, "/" + stem_name)
+    ):
+        return True
+    return target in set(policy.wrapper_allowed_commands)
+
+
+def _wrapper_extra_concern(facts, wrapper_module, wrapper):
+    names = {wrapper, module_name_from_path(wrapper)}
+    paths = {_normalized_path(wrapper)}
+    if wrapper_module is not None:
+        names.update(
+            (wrapper_module.name, module_name_from_path(wrapper_module.path))
+        )
+        paths.add(_normalized_path(wrapper_module.path))
+    for item in facts.concerns:
+        if item.module not in names and _normalized_path(item.source) not in paths:
+            continue
+        if item.concern in {"argv_parse", "exit"}:
+            continue
+        return item
+    return None
+
+
+def _artifact_sources(facts, policy):
+    declared = {_normalized_path(item.source) for item in policy.build_artifacts}
+    scoped = {
+        _normalized_path(item.path)
+        for item in facts.scopes
+        if item.scope == "build_artifact"
+    }
+    return sorted(declared | scoped)
+
+
+def wrapper_concern_attributions(facts, policy):
+    """Attribute native artifact concerns to their declared wrapper surface."""
+    declarations = {
+        _normalized_path(item.source): item.wrapper for item in policy.build_artifacts
+    }
+    result = []
+    for source in _artifact_sources(facts, policy):
+        wrapper = declarations.get(source)
+        if not wrapper:
+            continue
+        concerns = _artifact_concerns(facts, source)
+        if not concerns:
+            continue
+        module = _wrapper_module(facts, wrapper)
+        invocations = [
+            item
+            for item in facts.wrapper_operations
+            if _is_wrapper_invocation(item, module, wrapper, source, policy)
+        ]
+        if not invocations:
+            continue
+        invocation = min(invocations, key=lambda item: (item.source, item.line))
+        owner = module.name if module is not None else wrapper
+        for concern in concerns:
+            result.append(
+                BoundaryConcernUse(
+                    owner,
+                    concern.concern,
+                    concern.category,
+                    invocation.source,
+                    invocation.line,
+                )
+            )
+    return tuple(result)
+
+
+def wrapper_boundary_reviews(facts, policy):
+    """Return bounded SEM-10 reviews for uncovered or over-broad wrappers."""
+    declarations = {
+        _normalized_path(item.source): item.wrapper for item in policy.build_artifacts
+    }
+    reviews = []
+    for source in _artifact_sources(facts, policy):
+        concerns = _artifact_concerns(facts, source)
+        if not concerns or source not in declarations:
+            continue
+        wrapper = declarations[source]
+        module = _wrapper_module(facts, wrapper)
+        owner = module.name if module is not None else wrapper
+        invocations = [
+            item
+            for item in facts.wrapper_operations
+            if _is_wrapper_invocation(item, module, wrapper, source, policy)
+        ]
+        if not invocations:
+            first = min(concerns, key=lambda item: (item.source, item.line))
+            reviews.append(
+                SemanticReview(
+                    owner,
+                    first.source,
+                    first.line,
+                    _bounded_reason(
+                        f"SEM-10 declared wrapper {owner} has no matching "
+                        f"invocation for native artifact {source}"
+                    ),
+                )
+            )
+            continue
+        extra = _wrapper_extra_concern(facts, wrapper_module=module, wrapper=wrapper)
+        if extra is not None:
+            reviews.append(
+                SemanticReview(
+                    owner,
+                    extra.source,
+                    extra.line,
+                    _bounded_reason(
+                        f"SEM-10 declared wrapper {owner} has extra boundary "
+                        f"concern {extra.concern} at {extra.source}:{extra.line}"
+                    ),
+                )
+            )
+    return tuple(reviews)
+
+
+def check_native_wrapper_boundaries(facts, policy, decisions=()):
+    violations = []
+    declarations = {_normalized_path(item.source) for item in policy.build_artifacts}
+    for source in _artifact_sources(facts, policy):
+        if source in declarations:
+            continue
+        concerns = _artifact_concerns(facts, source)
+        if not concerns:
+            continue
+        first = min(concerns, key=lambda item: (item.source, item.line))
+        violations.append(
+            violation(
+                "direct_artifact_invocation",
+                f"native build artifact {source} owns {first.concern} "
+                "without a declared wrapper",
+                source=source,
+                location=f"{first.source}:{first.line}",
+                concern=first.concern,
+            )
+        )
+
+    attributed = wrapper_concern_attributions(facts, policy)
+    if attributed:
+        violations.extend(
+            check_boundary_concerns(replace(facts, concerns=attributed), policy)
+        )
+    reviews = wrapper_boundary_reviews(facts, policy)
+    if reviews:
+        violations.extend(
+            check_semantic_review(replace(facts, reviews=reviews), policy, decisions)
+        )
+    return tuple(violations)
+
+
+def _mechanism_regions(policy):
+    return set(
+        policy.boundary_allowed_regions.get("mechanism", _DEFAULT_MECHANISM_REGIONS)
+    )
+
+
+def _concern_region_allowed(module, category, policy, facts):
+    region = region_for(module, policy)
+    if region.name == "entrypoints":
+        return True
+    paths = _module_paths(facts)
+    if "build_artifact" in _scope_names(paths.get(module, ""), facts):
+        return True
+    return category == "mechanism" and region.name in _mechanism_regions(policy)
+
+
+def transitive_boundary_concerns(facts, policy):
+    """Propagate owned mechanism concerns backwards along dependency edges."""
+    concerns = [
+        item
+        for item in facts.concerns
+        if item.category == "mechanism" and not _excluded_source(item.source, facts, policy)
+    ]
+    if not concerns:
+        return (), ()
+
+    reverse = {}
+    for dep in facts.dependencies:
+        if dep.source_module and dep.target_module and dep.source_module != dep.target_module:
+            reverse.setdefault(dep.target_module, []).append(dep)
+
+    arrivals = {}
+    allowed_mechanism = _mechanism_regions(policy)
+    for concern in concerns:
+        frontier = {concern.module}
+        seen = set(frontier)
+        for _ in range(MAX_TRANSITIVE_DEPTH):
+            following = set()
+            for owner in sorted(frontier):
+                owner_region = region_for(owner, policy)
+                if not owner_region.core and owner_region.name not in allowed_mechanism:
+                    continue
+                for dep in sorted(
+                    reverse.get(owner, ()),
+                    key=lambda item: (item.source, item.line, item.source_module),
+                ):
+                    importer = dep.source_module
+                    if importer in seen or _excluded_source(dep.source, facts, policy):
+                        continue
+                    source_region = region_for(importer, policy)
+                    target_region = region_for(dep.target_module, policy)
+                    if (
+                        not source_region.core
+                        and target_region.name
+                        not in policy.allowed.get(source_region.name, ())
+                    ):
+                        continue
+                    following.add(importer)
+                    key = (importer, concern.concern, concern.category)
+                    compliant = _concern_region_allowed(
+                        importer, concern.category, policy, facts
+                    )
+                    arrivals.setdefault(key, set()).add(
+                        (source_region.name, compliant, dep.source, dep.line)
+                    )
+            frontier = following - seen
+            seen |= frontier
+            if not frontier:
+                break
+
+    synthetic = {}
+    reviews = []
+    for key, options in sorted(arrivals.items()):
+        importer, concern_name, category = key
+        chosen = min(options, key=lambda item: (item[2], item[3], item[0]))
+        source, line = chosen[2], chosen[3]
+        if len({item[1] for item in options}) > 1:
+            reviews.append(
+                SemanticReview(
+                    importer,
+                    source,
+                    line,
+                    _bounded_reason(
+                        f"SEM-15 mixed policy paths carry {concern_name} "
+                        f"into {importer}; human review required"
+                    ),
+                )
+            )
+            continue
+        fact = BoundaryConcernUse(importer, concern_name, category, source, line)
+        if fact not in facts.concerns:
+            synthetic[key] = fact
+    return tuple(synthetic.values()), tuple(reviews)
+
+
+def check_transitive_boundary_access(facts, policy, decisions=()):
+    synthetic, reviews = transitive_boundary_concerns(facts, policy)
+    result = []
+    if synthetic:
+        result.extend(
+            check_boundary_concerns(replace(facts, concerns=synthetic), policy)
+        )
+    if reviews:
+        result.extend(
+            check_semantic_review(replace(facts, reviews=reviews), policy, decisions)
+        )
+    return tuple(result)
+
 MAX_HELPER_CALL_DEPTH = 4
 
 
@@ -535,6 +864,8 @@ def check_helper_laundering(facts, policy, decisions=()):
 
 def check(facts, policy, decisions=()):
     result = []
+    result.extend(check_native_wrapper_boundaries(facts, policy, decisions))
+    result.extend(check_transitive_boundary_access(facts, policy, decisions))
     result.extend(check_edges(facts, policy))
     result.extend(find_cycles(facts))
     result.extend(check_unparsed(facts))

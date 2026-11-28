@@ -48,11 +48,19 @@ The question ID is `<answer_key>:<fingerprint>`, so each finding gets a stable
 typed answer keyed by the configured prefix and fingerprint.
 
 The `state` contains the rule, module, source path, line, reason, a bounded
-source excerpt, and relevant policy context. It never contains credentials.
+source excerpt, and relevant policy context. It never contains credentials or
+raw `semantic_decision` settings. Policy context includes regions, allowed and
+forbidden edges, boundary allowed regions, excluded scopes, declared
+executables, build artifacts, wrapper rules, use-case imports, and governed
+source suffixes.
 
-The response must contain a `choice` answer with a confidence in `[0, 1]` and a
-choice in the allowed decision set. Lintel normalizes model vocabulary
-(`allowed` → `compliant`, `violation` → `violating`) before validation.
+The response should include a `rationale` string. Lintel normalizes model
+vocabulary (`allowed` → `compliant`, `violation` → `violating`) before
+validation. Providers that omit rationale remain valid: Lintel derives a
+bounded, evidence-based rationale from the chosen criterion, finding reason,
+source, and line. The audit reason also records confidence. A supplied rationale
+must be a non-empty string;
+malformed values fail closed.
 
 A decision below `semantic_decision.min_confidence` is downgraded to
 `needs-human-review`, which leaves the finding pending.
@@ -62,9 +70,9 @@ A decision below `semantic_decision.min_confidence` is downgraded to
 Every model decision written to `lintel.baseline.json` records:
 
 - stable finding fingerprint;
+- rationale, supplied or derived, included in the audit reason;
 - decision and confidence;
-- model identifier and response model;
-- schema version;
+- schema version `2`;
 - evidence hash of the submitted state;
 - state hash of the complete request.
 

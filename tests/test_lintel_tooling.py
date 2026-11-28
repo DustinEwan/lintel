@@ -927,7 +927,7 @@ class SelfFactPipelineTests(unittest.TestCase):
             runtime.scaffold("clean", directory)
             path = os.path.join(directory, "adapters", "review_me.py")
             with open(path, "w", encoding="utf-8") as handle:
-                handle.write("import os\nvalue = getattr(os, \"environ\")\n")
+                handle.write("import os\nattribute = \"environ\"\nvalue = getattr(os, attribute)\n")
             config = runtime.load_self_config("lintel.toml", True)
             facts = runtime.collect_self_facts(config, PathOverrides())
             violations = check(facts, config.policy)
@@ -993,10 +993,10 @@ class EscapeHatchTests(unittest.TestCase):
 
     def test_semantic_review_flag_is_reported_and_excluded_scope_skipped(self):
         analysis = PythonSourceAnalyzer().analyze(
-            "adapters/example.py", "import os\nvalue = getattr(os, \"environ\")\n"
+            "adapters/example.py", "import os\nattribute = \"environ\"\nvalue = getattr(os, attribute)\n"
         )
         self.assertTrue(
-            any(item.reason == "dynamic access to os.environ" for item in analysis.reviews)
+            any(item.reason == "unresolved dynamic attribute on os" for item in analysis.reviews)
         )
         policy = real_policy()
         excluded = FactSet(
@@ -1084,7 +1084,7 @@ class ReviewDecisionTests(unittest.TestCase):
             runtime.scaffold("clean", directory)
             path = os.path.join(directory, "adapters", "review_me.py")
             with open(path, "w", encoding="utf-8") as handle:
-                handle.write("import os\nvalue = getattr(os, \"environ\")\n")
+                handle.write("import os\nattribute = \"environ\"\nvalue = getattr(os, attribute)\n")
             config = runtime.load_self_config("lintel.toml", True)
             facts = runtime.collect_self_facts(config, PathOverrides())
             findings = check_semantic_review(facts, config.policy)
@@ -1136,6 +1136,20 @@ class DecisionModelTests(unittest.TestCase):
         self.assertEqual(
             bundle["payload"]["questions"][question_id]["type"], "choice"
         )
+        declared = bundle["state"]["policy"]
+        self.assertEqual(
+            declared["executables"],
+            [
+                {"name": item.name, "path": item.path, "owner": item.owner}
+                for item in policy.executables
+            ],
+        )
+        self.assertIn("build_artifacts", declared)
+        self.assertIn("allowed", declared)
+        self.assertIn("forbidden", declared)
+        self.assertIn("source_suffixes", declared)
+        self.assertNotIn("semantic_decision", declared)
+        self.assertNotIn("api_key_env", json.dumps(bundle["state"]))
 
     def test_evaluate_validates_typed_choice_and_audits_state(self):
         policy = self._policy()
@@ -1151,6 +1165,7 @@ class DecisionModelTests(unittest.TestCase):
                             "type": "choice",
                             "choice": "compliant",
                             "confidence": 0.96,
+                            "rationale": "observed import crosses the boundary",
                         }
                     },
                 }
@@ -1168,6 +1183,8 @@ class DecisionModelTests(unittest.TestCase):
         self.assertEqual(decisions[0].model, "custom/vendor-model-1")
         self.assertTrue(decisions[0].evidence_hash)
         self.assertTrue(decisions[0].state_hash)
+        self.assertEqual(decisions[0].schema_version, "2")
+        self.assertIn("observed import crosses the boundary", decisions[0].reason)
 
     def test_low_confidence_is_downgraded(self):
         policy = self._policy()
@@ -1182,6 +1199,7 @@ class DecisionModelTests(unittest.TestCase):
                             "type": "choice",
                             "choice": "compliant",
                             "confidence": 0.2,
+                            "rationale": "insufficient evidence",
                         }
                     }
                 }
@@ -1195,6 +1213,35 @@ class DecisionModelTests(unittest.TestCase):
                 (finding,), policy, opener=lambda request, timeout=None: Response()
             )
         self.assertEqual(decisions[0].decision, "needs-human-review")
+
+    def test_missing_rationale_is_derived_from_evidence(self):
+        policy = self._policy()
+        finding = self._finding(policy)
+        question_id = f"review:{violation_fingerprint(finding)}"
+
+        class Response:
+            def read(self, limit=-1):
+                payload = {
+                    "answers": {
+                        question_id: {
+                            "type": "choice",
+                            "choice": "compliant",
+                            "confidence": 0.99,
+                        }
+                    }
+                }
+                return json.dumps(payload).encode("utf-8")
+
+            def close(self):
+                pass
+
+        with patch.dict(os.environ, {"TEST_DECISION_KEY": "secret"}):
+            decisions = decision_model.evaluate(
+                (finding,), policy, opener=lambda request, timeout=None: Response()
+            )
+        self.assertEqual(decisions[0].decision, "compliant")
+        self.assertIn("declared policy", decisions[0].reason)
+        self.assertIn("dynamic access to os.environ", decisions[0].reason)
 
     def test_checker_accepts_high_confidence_compliant_decision(self):
         policy = self._policy()
@@ -1230,6 +1277,7 @@ class DecisionModelTests(unittest.TestCase):
                             "type": "choice",
                             "choice": "violating",
                             "probabilities": {"compliant": 0.07, "violating": 0.93},
+                            "rationale": "probability favors violation",
                         }
                     },
                 }
@@ -1254,7 +1302,11 @@ class DecisionModelTests(unittest.TestCase):
             def read(self, limit=-1):
                 payload = {
                     "answers": {
-                        question_id: {"type": "choice", "choice": "compliant"}
+                        question_id: {
+                            "type": "choice",
+                            "choice": "compliant",
+                            "rationale": "missing confidence value",
+                        }
                     }
                 }
                 return json.dumps(payload).encode("utf-8")
@@ -1286,7 +1338,7 @@ class DecisionModelTests(unittest.TestCase):
             runtime.scaffold("clean", directory)
             path = os.path.join(directory, "adapters", "review_me.py")
             with open(path, "w", encoding="utf-8") as handle:
-                handle.write("import os\nvalue = getattr(os, \"environ\")\n")
+                handle.write("import os\nattribute = \"environ\"\nvalue = getattr(os, attribute)\n")
             config = runtime.load_self_config("lintel.toml", True)
             facts = runtime.collect_self_facts(config, PathOverrides())
             findings = runtime.semantic_review_findings(facts, config.policy)

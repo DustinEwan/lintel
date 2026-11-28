@@ -1,4 +1,10 @@
-"""Python implementation of the source analyzer port."""
+"""Python implementation of the source analyzer port.
+
+The ``[analysis].env_call_patterns`` key lists dotted call names known to read
+the environment (for example ``"Config.from_env"``). The config adapter
+installs those patterns through ``configure_env_call_patterns`` before facts
+are collected; no library call is assumed to read the environment by default.
+"""
 
 import ast
 
@@ -19,6 +25,66 @@ ENTRYPOINT_ONLY_IMPORTS = {"argparse", "typer", "click"}
 MECHANISM_IMPORTS = {"logging"}
 SUBPROCESS_CALLS = {"run", "call", "Popen", "check_call", "check_output"}
 
+BOUNDARY_IMPORTS = {
+    ("sys", "argv"): ("argv", "entrypoint_only"),
+    ("sys", "exit"): ("exit", "entrypoint_only"),
+    ("os", "environ"): ("env", "mechanism"),
+    ("os", "_exit"): ("exit", "entrypoint_only"),
+}
+BOUNDARY_ATTRIBUTES = {
+    "sys.argv": ("argv", "entrypoint_only"),
+    "sys.exit": ("exit", "entrypoint_only"),
+    "os.environ": ("env", "mechanism"),
+    "os._exit": ("exit", "entrypoint_only"),
+}
+REFLECTED_ATTRIBUTE_NAMES = frozenset(
+    name.rsplit(".", 1)[-1] for name in BOUNDARY_ATTRIBUTES
+)
+GOVERNED_REFLECTION_BASES = frozenset({"os", "sys", "os.environ"})
+INJECTED_PARAMETER_NAMES = frozenset({"args", "argv", "env"})
+CORE_PATH_PREFIXES = ("lintel/core/", "core/")
+LIVE_ENV_ANNOTATIONS = frozenset({"_Environ", "os._Environ"})
+LIVE_ARGV_ANNOTATIONS = frozenset(
+    {
+        "ArgumentParser",
+        "argparse.ArgumentParser",
+        "ModuleType",
+        "types.ModuleType",
+    }
+)
+PLAIN_ANNOTATIONS = frozenset(
+    {
+        "Any",
+        "Iterable",
+        "Literal",
+        "Mapping",
+        "MutableMapping",
+        "Namespace",
+        "Optional",
+        "Sequence",
+        "Union",
+        "bool",
+        "bytes",
+        "dict",
+        "float",
+        "frozenset",
+        "int",
+        "list",
+        "set",
+        "str",
+        "tuple",
+    }
+)
+AMBIGUOUS_ANNOTATIONS = frozenset({"Any", "object"})
+
+_configured_env_call_patterns = frozenset()
+
+
+def configure_env_call_patterns(patterns):
+    """Install configured env-reading call names for default analyzers."""
+    global _configured_env_call_patterns
+    _configured_env_call_patterns = frozenset(patterns or ())
+
 
 def _main_guard(tree):
     for node in tree.body:
@@ -33,31 +99,179 @@ def _main_guard(tree):
     return 0
 
 
-def _canonical_attribute(node, aliases):
-    parts = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    if not isinstance(node, ast.Name):
-        return None
-    return ".".join((aliases.get(node.id, node.id), *reversed(parts)))
-
-
-def _concerns(tree):
-    found = set()
+def _import_context(tree):
     aliases = {}
+    bindings = {}
     cli_frameworks = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root = alias.name.split(".", 1)[0]
                 aliases[alias.asname or root] = root
-                if root in {"typer", "click"}:
-                    cli_frameworks.add(root)
         elif isinstance(node, ast.ImportFrom):
-            root = (node.module or "").split(".", 1)[0]
+            module = node.module or ""
+            root = module.split(".", 1)[0]
             if root in {"typer", "click"}:
                 cli_frameworks.add(root)
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                target = f"{module}.{alias.name}" if module else alias.name
+                bindings[alias.asname or alias.name] = target
+    return aliases, bindings, cli_frameworks
+
+
+def _canonical_name(node, aliases, bindings):
+    if node is None:
+        return None
+    if isinstance(node, ast.Name):
+        return bindings.get(node.id, aliases.get(node.id, node.id))
+    if isinstance(node, ast.Attribute):
+        base = _canonical_name(node.value, aliases, bindings)
+        return f"{base}.{node.attr}" if base else None
+    if isinstance(node, ast.Call):
+        if _canonical_name(node.func, aliases, bindings) == "importlib.import_module":
+            if (
+                len(node.args) == 1
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                return node.args[0].value
+    return None
+
+
+def _canonical_attribute(node, aliases):
+    return _canonical_name(node, aliases, {})
+
+
+def _value_bindings(tree, aliases, imported):
+    """Resolve simple alias/re-export assignments to canonical dotted names."""
+    resolved = dict(imported)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
+            target, value = node.targets[0].id, node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            target, value = node.target.id, node.value
+        else:
+            continue
+        canonical = _canonical_name(value, aliases, resolved)
+        if canonical is None:
+            resolved.pop(target, None)
+        else:
+            resolved[target] = canonical
+    return resolved
+
+
+def _boundary_concern(node, aliases, bindings):
+    return BOUNDARY_ATTRIBUTES.get(_canonical_name(node, aliases, bindings))
+
+
+def _reflection_target(node, aliases, bindings):
+    if not (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+    ):
+        return None
+    base = _canonical_name(node.args[0], aliases, bindings)
+    attribute = node.args[1]
+    if base and isinstance(attribute, ast.Constant) and isinstance(attribute.value, str):
+        return f"{base}.{attribute.value}"
+    return None
+
+
+def _in_core_module(relative_path):
+    normalized = str(relative_path).replace("\\", "/")
+    return normalized.startswith(CORE_PATH_PREFIXES)
+
+
+def _annotation_kind(annotation, aliases, bindings):
+    if annotation is None:
+        return "ambiguous"
+    parts = set()
+    for child in ast.walk(annotation):
+        if isinstance(child, ast.Name):
+            parts.add(bindings.get(child.id, aliases.get(child.id, child.id)))
+        elif isinstance(child, ast.Attribute):
+            name = _canonical_name(child, aliases, bindings)
+            if name:
+                parts.add(name)
+    if any(name in LIVE_ENV_ANNOTATIONS or name.endswith("._Environ") for name in parts):
+        return "env"
+    if any(
+        name in LIVE_ARGV_ANNOTATIONS
+        or name.endswith(".ArgumentParser")
+        or name.endswith(".ModuleType")
+        for name in parts
+    ):
+        return "argv"
+    if not parts or parts & AMBIGUOUS_ANNOTATIONS:
+        return "ambiguous"
+    if all(name.rsplit(".", 1)[-1] in PLAIN_ANNOTATIONS for name in parts):
+        return "plain"
+    return "ambiguous"
+
+
+def _stored_on_self(function, name):
+    for node in ast.walk(function):
+        targets = []
+        value = None
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets, value = [node.target], node.value
+        for target in targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "self"
+                and target.attr == name
+                and isinstance(value, ast.Name)
+                and value.id == name
+            ):
+                return True
+    return False
+
+
+def _injected_boundary(tree, aliases, bindings, relative_path):
+    concerns = set()
+    reviews = set()
+    if not _in_core_module(relative_path):
+        return concerns, reviews
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        arguments = [
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        ]
+        for argument in arguments:
+            if argument.arg not in INJECTED_PARAMETER_NAMES:
+                continue
+            kind = _annotation_kind(argument.annotation, aliases, bindings)
+            if kind == "env":
+                concerns.add(("env", "mechanism", node.lineno))
+            elif kind == "argv":
+                concerns.add(("argv_parse", "entrypoint_only", node.lineno))
+            elif kind == "ambiguous" and _stored_on_self(node, argument.arg):
+                reviews.add((node.lineno, f"unresolved injected boundary value {argument.arg}"))
+    return concerns, reviews
+
+
+def _concerns(tree, relative_path, env_call_patterns):
+    aliases, imported, cli_frameworks = _import_context(tree)
+    bindings = _value_bindings(tree, aliases, imported)
+    found = set()
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -71,16 +285,13 @@ def _concerns(tree):
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
             for alias in node.names:
-                if module == "sys" and alias.name == "argv":
-                    found.add(("argv", "entrypoint_only", node.lineno))
-                elif module == "sys" and alias.name == "exit":
-                    found.add(("exit", "entrypoint_only", node.lineno))
-                elif module == "os" and alias.name == "environ":
-                    found.add(("env", "mechanism", node.lineno))
-                elif module == "os" and alias.name == "_exit":
-                    found.add(("exit", "entrypoint_only", node.lineno))
+                imported_concern = BOUNDARY_IMPORTS.get((module, alias.name))
+                if imported_concern is not None:
+                    found.add((*imported_concern, node.lineno))
                 elif module in ENTRYPOINT_ONLY_IMPORTS:
                     found.add(("argv_parse", "entrypoint_only", node.lineno))
+                elif module in MECHANISM_IMPORTS:
+                    found.add(("logging", "mechanism", node.lineno))
             continue
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for decorator in node.decorator_list:
@@ -92,25 +303,40 @@ def _concerns(tree):
                 )
                 if explicit_cli or framework_command:
                     found.add(("argv_parse", "entrypoint_only", node.lineno))
-        if isinstance(node, ast.Attribute):
-            expression = _canonical_attribute(node, aliases) or ast.unparse(node)
-            if expression == "sys.argv":
-                found.add(("argv", "entrypoint_only", node.lineno))
-            elif expression == "os.environ":
-                found.add(("env", "mechanism", node.lineno))
-            elif expression == "sys.exit":
-                found.add(("exit", "entrypoint_only", node.lineno))
-            elif expression == "os._exit":
-                found.add(("exit", "entrypoint_only", node.lineno))
+
+        concern = _boundary_concern(node, aliases, bindings)
+        if concern is not None:
+            found.add((*concern, node.lineno))
+        reflected = _reflection_target(node, aliases, bindings)
+        if reflected is not None:
+            concern = BOUNDARY_ATTRIBUTES.get(reflected)
+            if concern is not None:
+                found.add((*concern, node.lineno))
+
         if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
             if getattr(node.exc.func, "id", "") == "SystemExit":
                 found.add(("exit", "mechanism", node.lineno))
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id == "print":
                 found.add(("terminal_io", "mechanism", node.lineno))
+            call_name = _canonical_name(node.func, aliases, bindings)
+            if call_name == "logging.StreamHandler" or (
+                call_name == "logging.basicConfig"
+                and any(keyword.arg == "stream" for keyword in node.keywords)
+            ):
+                found.add(("terminal_io", "mechanism", node.lineno))
+            for pattern in env_call_patterns:
+                if call_name == pattern or (
+                    call_name is not None and call_name.endswith(f".{pattern}")
+                ):
+                    found.add(("env", "mechanism", node.lineno))
+                    break
             expression = ast.unparse(node)
             if expression.startswith("sys.exit(") or expression.startswith("os._exit("):
                 found.add(("exit", "entrypoint_only", node.lineno))
+
+    injected, _ = _injected_boundary(tree, aliases, bindings, relative_path)
+    found.update(injected)
     return sorted(found)
 
 
@@ -151,25 +377,69 @@ def _wrapper_operations(tree, module):
 
 
 def _semantic_reviews(tree, module, relative_path):
-    reviews = []
+    aliases, imported, _ = _import_context(tree)
+    bindings = _value_bindings(tree, aliases, imported)
+    parents = _parents(tree)
+    reviews = set()
+
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id == "getattr"
             and len(node.args) >= 2
-            and isinstance(node.args[0], ast.Name)
-            and isinstance(node.args[1], ast.Constant)
-            and isinstance(node.args[1].value, str)
         ):
-            target = f"{node.args[0].id}.{node.args[1].value}"
-            if target in {"os.environ", "sys.argv", "sys.exit", "os._exit"}:
-                reviews.append((node.lineno, f"dynamic access to {target}"))
-        if isinstance(node, ast.Call) and ast.unparse(node.func) == "importlib.import_module":
-            reviews.append((node.lineno, "dynamic module loading"))
+            base = _canonical_name(node.args[0], aliases, bindings)
+            attribute = node.args[1]
+            literal = (
+                isinstance(attribute, ast.Constant)
+                and isinstance(attribute.value, str)
+            )
+            if base in GOVERNED_REFLECTION_BASES and not literal:
+                reviews.add((node.lineno, f"unresolved dynamic attribute on {base}"))
+
+        if (
+            isinstance(node, ast.Call)
+            and _canonical_name(node.func, aliases, bindings)
+            == "importlib.import_module"
+            and not (
+                node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            )
+        ):
+            current = node
+            parent = parents.get(current)
+            while parent is not None:
+                if (
+                    isinstance(parent, ast.Attribute)
+                    and parent.attr in REFLECTED_ATTRIBUTE_NAMES
+                ):
+                    reviews.add((node.lineno, "unresolved dynamic module access"))
+                    break
+                if (
+                    isinstance(parent, ast.Call)
+                    and isinstance(parent.func, ast.Name)
+                    and parent.func.id == "getattr"
+                    and len(parent.args) >= 2
+                    and parent.args[0] is current
+                    and isinstance(parent.args[1], ast.Constant)
+                    and isinstance(parent.args[1].value, str)
+                    and parent.args[1].value in REFLECTED_ATTRIBUTE_NAMES
+                ):
+                    reviews.add((node.lineno, "unresolved dynamic module access"))
+                    break
+                if isinstance(parent, ast.Subscript):
+                    current = parent
+                    parent = parents.get(parent)
+                    continue
+                break
+
+    _, injected = _injected_boundary(tree, aliases, bindings, relative_path)
+    reviews.update(injected)
     return tuple(
         SemanticReview(module, relative_path, line, reason)
-        for line, reason in sorted(set(reviews))
+        for line, reason in sorted(reviews)
     )
 
 
@@ -305,6 +575,17 @@ def _call_facts(tree, module, relative_path):
 class PythonSourceAnalyzer:
     suffixes = (".py",)
 
+    def __init__(self, env_call_patterns=None):
+        self._env_call_patterns = (
+            None if env_call_patterns is None else frozenset(env_call_patterns)
+        )
+
+    @property
+    def env_call_patterns(self):
+        if self._env_call_patterns is None:
+            return _configured_env_call_patterns
+        return self._env_call_patterns
+
     def analyze(self, relative_path, source):
         module = module_name_from_path(relative_path)
         try:
@@ -325,7 +606,9 @@ class PythonSourceAnalyzer:
 
         concerns = tuple(
             BoundaryConcernUse(module, concern, category, relative_path, line)
-            for concern, category, line in _concerns(tree)
+            for concern, category, line in _concerns(
+                tree, relative_path, self.env_call_patterns
+            )
         )
         operations = tuple(
             WrapperOperation(module, operation, target, relative_path, line)

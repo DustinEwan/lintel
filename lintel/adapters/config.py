@@ -34,7 +34,7 @@ SCOPE_RULE_KEYS = {"forbidden_edges", "conventions", "excluded_scopes"}
 WRAPPER_KEYS = {"allowed_imports", "forbidden_imports", "allowed_commands"}
 USE_CASE_KEYS = {"allowed_imports"}
 
-ANALYSIS_KEYS = {"source_suffixes"}
+ANALYSIS_KEYS = {"source_suffixes", "env_call_patterns"}
 
 SEMANTIC_DECISION_KEYS = {
     "model",
@@ -72,6 +72,13 @@ def _string_list(value, field, table):
     ):
         raise SystemExit(f"config {table}: {field} must be an array of strings")
     return list(value)
+def _env_call_patterns(value):
+    patterns = _string_list(value, "env_call_patterns", "analysis")
+    for pattern in patterns:
+        if not pattern or not all(part.isidentifier() for part in pattern.split(".")):
+            raise SystemExit(f"config analysis: invalid env_call_patterns entry {pattern!r}")
+    return tuple(sorted(set(patterns)))
+
 
 
 def _make_violation(rule, message, **fields):
@@ -113,6 +120,7 @@ def validate_config(config, root=None):
             _make_violation("config_invalid", "analysis must be a table", location="analysis")
         )
         analysis = {}
+    env_patterns = analysis.get("env_call_patterns")
     suffixes = analysis.get("source_suffixes")
     if suffixes is None:
         violations.append(
@@ -132,6 +140,28 @@ def validate_config(config, root=None):
                 location="analysis.source_suffixes",
             )
         )
+    if env_patterns is not None:
+        if not isinstance(env_patterns, list) or not all(
+            isinstance(item, str) for item in env_patterns
+        ):
+            violations.append(
+                _make_violation(
+                    "config_invalid",
+                    "analysis.env_call_patterns must be an array of strings",
+                    location="analysis.env_call_patterns",
+                )
+            )
+        elif any(
+            not item or not all(part.isidentifier() for part in item.split("."))
+            for item in env_patterns
+        ):
+            violations.append(
+                _make_violation(
+                    "config_invalid",
+                    "analysis.env_call_patterns entries must be dotted identifiers",
+                    location="analysis.env_call_patterns",
+                )
+            )
 
     paths = config.get("paths", {})
     _check_keys(paths, PATH_KEYS, "paths", violations)
@@ -426,6 +456,12 @@ def policy_from_config(config):
     analysis = config.get("analysis")
     if not isinstance(analysis, dict) or "source_suffixes" not in analysis:
         raise SystemExit("config analysis: source_suffixes is required")
+    env_call_patterns = _env_call_patterns(analysis.get("env_call_patterns"))
+    # Analyzers are registered before config is read; install the configured
+    # patterns here so fact collection sees the same policy as the checker.
+    from lintel.adapters.language.python_analyzer import configure_env_call_patterns
+
+    configure_env_call_patterns(env_call_patterns)
     return {
         "version": 1,
         "default_region": default_layer,
@@ -478,6 +514,7 @@ def policy_from_config(config):
         "source_suffixes": tuple(
             _string_list(analysis.get("source_suffixes"), "source_suffixes", "analysis")
         ),
+        "analysis_env_call_patterns": env_call_patterns,
         "semantic_decision": {
             **SEMANTIC_DECISION_DEFAULTS,
             **(

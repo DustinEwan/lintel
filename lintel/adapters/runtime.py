@@ -17,6 +17,7 @@ from lintel.adapters import (
     decision_model,
     contract_lock,
     incremental_cache,
+    policy_diff,
 )
 from lintel.core import presets, review, rules
 from lintel.core.callgraph import relevant_unresolved_reviews
@@ -229,6 +230,18 @@ class LintelRuntime:
             scope_conventions=policy.scope_conventions,
         )
 
+    def _with_policy_diff_reviews(self, facts):
+        reviews = tuple(policy_diff.detect(self.root, facts))
+        if not reviews:
+            return facts
+        existing = {(item.source, item.line, item.reason) for item in facts.reviews}
+        additions = tuple(
+            item
+            for item in reviews
+            if (item.source, item.line, item.reason) not in existing
+        )
+        return replace(facts, reviews=facts.reviews + additions) if additions else facts
+
     def collect_self_facts(self, config, overrides):
         key = None
         if self.use_cache:
@@ -237,7 +250,7 @@ class LintelRuntime:
             )
             cached = incremental_cache.load_facts(self.root, key)
             if cached is not None:
-                return facts_from_dict(cached)
+                return self._with_policy_diff_reviews(facts_from_dict(cached))
         core_root = self.resolve(overrides.core_root or config.core_root)
         adapters_root = self.resolve(
             overrides.adapters_root or config.adapters_root
@@ -341,7 +354,7 @@ class LintelRuntime:
             data["decisions"] = self._baseline_decision_data()
             if self.use_cache:
                 incremental_cache.save_facts(self.root, key, data)
-            return facts_from_dict(data)
+            return self._with_policy_diff_reviews(facts_from_dict(data))
 
     def write_facts(self, path, facts):
         parent = os.path.dirname(os.path.abspath(path))

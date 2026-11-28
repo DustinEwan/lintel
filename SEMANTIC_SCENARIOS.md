@@ -1,6 +1,6 @@
 # Agentic semantic evaluation scenarios
 
-Status: inventory and decision-model decision contract.
+Status: inventory and decision-model decision contract; implemented scenarios use deterministic facts or bounded semantic reviews.
 
 Implementation status and deterministic extractor gaps live in [docs/limitations.md](docs/limitations.md).
 

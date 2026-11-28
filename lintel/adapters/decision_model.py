@@ -21,6 +21,7 @@ DEFAULTS = {
     "max_findings": 64,
 }
 MAX_RESPONSE_BYTES = 1_000_000
+MAX_RATIONALE_CHARS = 500
 CRITERIA = {
     "compliant": "The construct is allowed under the declared policy.",
     "violating": "The construct crosses a governed boundary.",
@@ -37,6 +38,32 @@ def _digest(value):
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _rationale(value, choice, bundle, fingerprint):
+    if value is None:
+        evidence = next(
+            (
+                item
+                for item in bundle["state"]["findings"]
+                if item.get("fingerprint") == fingerprint
+            ),
+            {},
+        )
+        parts = [CRITERIA.get(choice, choice)]
+        if evidence.get("reason"):
+            parts.append(f"evidence: {evidence['reason']}")
+        if evidence.get("source"):
+            parts.append(f"at {evidence['source']}:{evidence.get('line', 0)}")
+        value = " ".join(parts)
+    if not isinstance(value, str):
+        raise DecisionModelError("decision rationale must be a string")
+    cleaned = " ".join(value.split())
+    if not cleaned:
+        raise DecisionModelError("decision rationale is empty")
+    if len(cleaned) > MAX_RATIONALE_CHARS:
+        cleaned = cleaned[: MAX_RATIONALE_CHARS - 1] + "…"
+    return cleaned
 
 
 def _settings(policy):
@@ -76,11 +103,39 @@ def build_payload(findings, policy, root=None):
     state = {
         "task": "lintel.semantic_review",
         "policy": {
+            "default_region": policy.default_region,
+            "regions": [
+                {
+                    "name": item.name,
+                    "core": item.core,
+                    "patterns": list(item.patterns),
+                }
+                for item in policy.regions
+            ],
+            "allowed": {
+                name: list(regions) for name, regions in policy.allowed.items()
+            },
+            "forbidden": {
+                name: list(regions) for name, regions in policy.forbidden.items()
+            },
             "excluded_scopes": list(policy.excluded_scopes),
             "boundary_allowed_regions": {
                 name: list(regions)
                 for name, regions in policy.boundary_allowed_regions.items()
             },
+            "executables": [
+                {"name": item.name, "path": item.path, "owner": item.owner}
+                for item in policy.executables
+            ],
+            "build_artifacts": [
+                {"source": item.source, "wrapper": item.wrapper}
+                for item in policy.build_artifacts
+            ],
+            "wrapper_allowed_imports": list(policy.wrapper_allowed_imports),
+            "wrapper_forbidden_imports": list(policy.wrapper_forbidden_imports),
+            "wrapper_allowed_commands": list(policy.wrapper_allowed_commands),
+            "use_case_allowed_imports": list(policy.use_case_allowed_imports),
+            "source_suffixes": list(policy.source_suffixes),
         },
         "findings": [],
     }
@@ -107,7 +162,7 @@ def build_payload(findings, policy, root=None):
             "type": "choice",
             "instructions": (
                 "Decide this Lintel semantic-review finding under the declared "
-                "architecture policy."
+                "architecture policy. Give a concise rationale in the answer."
             ),
             "criteria": dict(CRITERIA),
         }
@@ -123,7 +178,7 @@ def build_payload(findings, policy, root=None):
     }
 
 
-def _validate_answer(finding, fingerprint, response, bundle):
+def _validate_answer(fingerprint, response, bundle):
     settings = bundle["settings"]
     question_id = bundle["question_ids"][fingerprint]
     answers = response.get("answers")
@@ -147,15 +202,18 @@ def _validate_answer(finding, fingerprint, response, bundle):
     threshold = float(settings["min_confidence"])
     if confidence < threshold:
         choice = "needs-human-review"
+    rationale = _rationale(answer.get("rationale"), choice, bundle, fingerprint)
     model = response.get("model") or settings["model"]
-    reason = f"{model} choice={choice} confidence={confidence:.4f}"
+    reason = (
+        f"{model} choice={choice} confidence={confidence:.4f} rationale={rationale}"
+    )
     return SemanticDecision(
         fingerprint=fingerprint,
         decision=choice,
         reason=reason,
         confidence=confidence,
         model=str(model),
-        schema_version="1",
+        schema_version="2",
         evidence_hash=_digest(bundle["state"]),
         state_hash=_digest(bundle["payload"]),
     )
@@ -206,5 +264,5 @@ def evaluate(findings, policy, root=None, opener=None):
     decisions = []
     for finding in findings:
         fingerprint = violation_fingerprint(finding)
-        decisions.append(_validate_answer(finding, fingerprint, data, bundle))
+        decisions.append(_validate_answer(fingerprint, data, bundle))
     return tuple(decisions)
