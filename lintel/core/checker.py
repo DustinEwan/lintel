@@ -2,7 +2,7 @@ from fnmatch import fnmatchcase
 from posixpath import splitext
 
 from . import review
-from .callgraph import concern_symbols, relevant_unresolved_reviews, resolve_calls
+from .graph_index import GraphIndex
 from .model import BoundaryConcernUse, Dependency, Region, SemanticReview, Violation, replace
 from .ratchet import violation_fingerprint
 from .rules import rule_spec
@@ -56,16 +56,25 @@ def _module_paths(facts):
     return {module.name: module.path for module in facts.modules}
 
 
-def check_edges(facts, policy):
+def _graph_module_path(index, source, target):
+    chain = index.path(source, target, kinds="depends_on")
+    if chain is None:
+        return (source, target)
+    return tuple(step[1] for step in chain)
+
+def check_edges(facts, policy, index=None):
+    if index is None:
+        index = GraphIndex(facts)
     violations = []
     allowed = policy.allowed
 
-    for dep in facts.dependencies:
+    for dep in index.dependencies():
         source = dep.source_module
         target = dep.target_module
         source_region = region_for(source, policy)
         target_region = region_for(target, policy)
         location = f"{dep.source or '?'}:{dep.line or '?'}"
+        evidence = _graph_module_path(index, source, target)
 
         if source_region.core and not target_region.core:
             violations.append(
@@ -73,6 +82,7 @@ def check_edges(facts, policy):
                     "core_outward",
                     f"core module {source} depends on outer module {target} ({location})",
                     **{"from": source, "to": target, "location": location},
+                    path=evidence,
                 )
             )
 
@@ -84,6 +94,7 @@ def check_edges(facts, policy):
                     "forbidden_import",
                     f"core module {source} imports forbidden {target} ({location})",
                     **{"from": source, "to": target, "location": location},
+                    path=evidence,
                 )
             )
 
@@ -100,50 +111,46 @@ def check_edges(facts, policy):
                         "target_region": target_region.name,
                         "location": location,
                     },
+                    path=evidence,
                 )
             )
 
     return tuple(violations)
 
 
-def find_cycles(facts):
-    graph = {}
-    for dep in facts.dependencies:
-        graph.setdefault(dep.source_module, set()).add(dep.target_module)
+def core_outward_paths(facts, policy, index=None):
+    """Return deterministic dependency paths from core modules to outer modules."""
+    if index is None:
+        index = GraphIndex(facts)
+    result = []
+    for node in index.nodes("module"):
+        module = getattr(node.value, "name", str(node.value))
+        if not region_for(module, policy).core or not index.out(node.id, "depends_on"):
+            continue
+        for reached in index.reachable(node.id, kinds="depends_on"):
+            target = getattr(reached.value, "name", str(reached.value))
+            if region_for(target, policy).core:
+                continue
+            chain = index.path(node.id, reached.id, kinds="depends_on")
+            if chain is None:
+                continue
+            path = tuple(step[1] for step in chain)
+            if path not in result:
+                result.append(path)
+    return tuple(sorted(result))
 
-    color = {}
-    stack = []
-    seen = set()
-    cycles = []
 
-    def visit(node):
-        color[node] = 1
-        stack.append(node)
-        for nxt in sorted(graph.get(node, ())):
-            state = color.get(nxt, 0)
-            if state == 0:
-                visit(nxt)
-            elif state == 1:
-                start = stack.index(nxt) if nxt in stack else 0
-                cycle = stack[start:] + [nxt]
-                key = tuple(cycle)
-                if key not in seen:
-                    seen.add(key)
-                    cycles.append(cycle)
-        stack.pop()
-        color[node] = 2
 
-    for node in sorted(graph):
-        if color.get(node, 0) == 0:
-            visit(node)
-
+def find_cycles(facts, index=None):
+    if index is None:
+        index = GraphIndex(facts)
     return [
         violation(
             "cycle",
             "dependency cycle: " + " -> ".join(cycle),
             cycle=cycle,
         )
-        for cycle in cycles
+        for cycle in index.cycles()
     ]
 
 
@@ -167,7 +174,9 @@ def _excluded_source(source, facts, policy):
     )
 
 
-def check_semantic_review(facts, policy, decisions=None):
+def check_semantic_review(facts, policy, decisions=None, index=None):
+    if index is None:
+        index = GraphIndex(facts)
     result = []
     selected = () if decisions is None else decisions
     by_fingerprint = {item.fingerprint: item for item in selected}
@@ -176,6 +185,7 @@ def check_semantic_review(facts, policy, decisions=None):
     for item in facts.reviews:
         if _excluded_source(item.source, facts, policy):
             continue
+        graph_state_hash = index.review_state_hash(item)
         finding = violation(
             "semantic_review",
             "semantic review: " + item.reason + f" ({item.source}:{item.line})",
@@ -184,6 +194,7 @@ def check_semantic_review(facts, policy, decisions=None):
             line=item.line,
             location=f"{item.source}:{item.line}",
             reason=item.reason,
+            graph_state_hash=graph_state_hash,
         )
         fingerprint = violation_fingerprint(finding)
         decision = by_fingerprint.get(fingerprint)
@@ -212,9 +223,11 @@ def check_semantic_review(facts, policy, decisions=None):
                 decision_schema_version=decision.schema_version,
                 evidence_hash=decision.evidence_hash,
                 state_hash=decision.state_hash,
+                graph_state_hash=graph_state_hash,
             )
         )
     return tuple(result)
+
 
 
 def check_executables(facts, policy):
@@ -598,6 +611,13 @@ def _artifact_sources(facts, policy):
     return sorted(declared | scoped)
 
 
+def wrapper_invocations(facts, wrapper_module=None, index=None):
+    """Return wrapper invocation edges from the derived graph."""
+    if index is None:
+        index = GraphIndex(facts)
+    return index.wrapper_invocations(wrapper_module)
+
+
 def wrapper_concern_attributions(facts, policy):
     """Attribute native artifact concerns to their declared wrapper surface."""
     declarations = {
@@ -732,8 +752,10 @@ def _concern_region_allowed(module, category, policy, facts):
     return category == "mechanism" and region.name in _mechanism_regions(policy)
 
 
-def transitive_boundary_concerns(facts, policy):
+def transitive_boundary_concerns(facts, policy, index=None):
     """Propagate owned mechanism concerns backwards along dependency edges."""
+    if index is None:
+        index = GraphIndex(facts)
     concerns = [
         item
         for item in facts.concerns
@@ -781,10 +803,6 @@ def transitive_boundary_concerns(facts, policy):
             )
         )
 
-    reverse = {}
-    for dep in (*facts.dependencies, *local_dependencies):
-        if dep.source_module and dep.target_module and dep.source_module != dep.target_module:
-            reverse.setdefault(dep.target_module, []).append(dep)
     arrivals = {}
     allowed_mechanism = _mechanism_regions(policy)
     for concern in concerns:
@@ -796,10 +814,7 @@ def transitive_boundary_concerns(facts, policy):
                 owner_region = region_for(owner, policy)
                 if not owner_region.core and owner_region.name not in allowed_mechanism:
                     continue
-                for dep in sorted(
-                    reverse.get(owner, ()),
-                    key=lambda item: (item.source, item.line, item.source_module),
-                ):
+                for dep in index.incoming(owner, local_dependencies):
                     importer = dep.source_module
                     if importer in seen or _excluded_source(dep.source, facts, policy):
                         continue
@@ -827,7 +842,7 @@ def transitive_boundary_concerns(facts, policy):
     synthetic = {}
     for key, options in sorted(arrivals.items()):
         importer, concern_name, category = key
-        chosen = min(options, key=lambda item: (item[2], item[3], item[0]))
+        chosen = min(options, key=lambda item: (item[3], item[2], item[0]))
         source, line = chosen[2], chosen[3]
         if len({item[1] for item in options}) > 1:
             reviews.append(
@@ -848,8 +863,8 @@ def transitive_boundary_concerns(facts, policy):
     return tuple(synthetic.values()), tuple(reviews)
 
 
-def check_transitive_boundary_access(facts, policy, decisions=()):
-    synthetic, reviews = transitive_boundary_concerns(facts, policy)
+def check_transitive_boundary_access(facts, policy, decisions=(), index=None):
+    synthetic, reviews = transitive_boundary_concerns(facts, policy, index)
     result = []
     if synthetic:
         result.extend(
@@ -864,43 +879,18 @@ def check_transitive_boundary_access(facts, policy, decisions=()):
 MAX_HELPER_CALL_DEPTH = 4
 
 
-def check_helper_laundering(facts, policy, decisions=()):
-    symbols = {item.key: item for item in facts.symbols}
-    edges, _ = resolve_calls(facts)
-
-    frontier = concern_symbols(facts)
-
-    if not frontier:
+def check_helper_laundering(facts, policy, decisions=(), index=None):
+    if index is None:
+        index = GraphIndex(facts)
+    if not index.concern_symbols():
         return ()
 
-    synthetic = []
-    seen = set(frontier)
-    for _ in range(MAX_HELPER_CALL_DEPTH):
-        next_frontier = {}
-        for edge in edges:
-            concern = frontier.get(edge.callee)
-            if concern is None or edge.caller in seen or edge.caller not in symbols:
-                continue
-            seen.add(edge.caller)
-            caller = symbols[edge.caller]
-            synthetic.append(
-                BoundaryConcernUse(
-                    caller.module,
-                    concern.concern,
-                    concern.category,
-                    edge.source,
-                    edge.line,
-                )
-            )
-            next_frontier[edge.caller] = concern
-        frontier = next_frontier
-        if not frontier:
-            break
+    synthetic = index.concern_carriers(MAX_HELPER_CALL_DEPTH)
 
     result = list(
         check_boundary_concerns(replace(facts, concerns=tuple(synthetic)), policy)
     )
-    unresolved = relevant_unresolved_reviews(facts)
+    unresolved = index.relevant_unresolved_reviews()
     if unresolved:
         result.extend(
             check_semantic_review(replace(facts, reviews=unresolved), policy, decisions)
@@ -910,16 +900,17 @@ def check_helper_laundering(facts, policy, decisions=()):
 
 def check(facts, policy, decisions=()):
     result = []
+    index = GraphIndex(facts)
     result.extend(check_native_wrapper_boundaries(facts, policy, decisions))
-    result.extend(check_transitive_boundary_access(facts, policy, decisions))
-    result.extend(check_edges(facts, policy))
-    result.extend(find_cycles(facts))
+    result.extend(check_transitive_boundary_access(facts, policy, decisions, index))
+    result.extend(check_edges(facts, policy, index))
+    result.extend(find_cycles(facts, index))
     result.extend(check_unparsed(facts))
     result.extend(check_executables(facts, policy))
     result.extend(check_scopes(facts, policy))
     result.extend(check_boundary_concerns(facts, policy))
-    result.extend(check_helper_laundering(facts, policy, decisions))
-    result.extend(check_semantic_review(facts, policy, decisions))
+    result.extend(check_helper_laundering(facts, policy, decisions, index))
+    result.extend(check_semantic_review(facts, policy, decisions, index))
     result.extend(check_use_cases(facts, policy))
     result.extend(check_wrapper_operations(facts, policy))
     return tuple(result)

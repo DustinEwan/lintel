@@ -185,6 +185,65 @@ class TransitiveScenarioTests(unittest.TestCase):
             reviews[0].reason,
         )
 
+    def test_sem15_incoming_index_chooses_earliest_source(self):
+        facts = FactSet(
+            modules=(
+                Module("core.service", "core/service.py"),
+                Module("adapters.importer", "adapters/importer.py"),
+            ),
+            dependencies=(
+                Dependency("adapters.importer", "core.service", source="adapters/a.py", line=9),
+                Dependency("adapters.importer", "core.service", source="adapters/b.py", line=2),
+            ),
+            concerns=(
+                BoundaryConcernUse("core.service", "env", "mechanism", "core/service.py", 1),
+            ),
+        )
+        synthetic, reviews = transitive_boundary_concerns(facts, scenario_policy())
+        self.assertEqual(
+            [(item.module, item.source, item.line) for item in synthetic],
+            [("adapters.importer", "adapters/b.py", 2)],
+        )
+        self.assertEqual(reviews, ())
+
+    def test_sem15_incoming_index_ignores_other_bridge_targets(self):
+        policy = replace(
+            scenario_policy(),
+            build_artifacts=(
+                BuildArtifact("native/one.rs", "adapters.wrap"),
+                BuildArtifact("native/two.rs", "adapters.wrap"),
+            ),
+        )
+        facts = FactSet(
+            modules=(
+                Module("adapters.wrap", "adapters/wrap.py"),
+                Module("adapters.one", "native/one.rs"),
+                Module("adapters.two", "native/two.rs"),
+            ),
+            concerns=(
+                BoundaryConcernUse("adapters.one", "env_one", "mechanism", "native/one.rs", 1),
+                BoundaryConcernUse("adapters.two", "env_two", "mechanism", "native/two.rs", 1),
+            ),
+            wrapper_operations=(
+                WrapperOperation("adapters.wrap", "subprocess", "native/one.rs", "adapters/wrap.py", 3),
+                WrapperOperation("adapters.wrap", "subprocess", "native/two.rs", "adapters/wrap.py", 4),
+            ),
+        )
+        synthetic, reviews = transitive_boundary_concerns(facts, policy)
+        self.assertEqual(
+            [
+                (item.module, item.concern, item.source, item.line)
+                for item in synthetic
+            ],
+            [
+                ("adapters.wrap", "env_one", "adapters/wrap.py", 3),
+                ("adapters.wrap", "env_two", "adapters/wrap.py", 4),
+            ],
+        )
+        self.assertEqual(reviews, ())
+
+
+
 
 class GeneratedScopeScenarioTests(unittest.TestCase):
     def test_sem08_declared_generated_and_vendor_concerns_are_skipped(self):

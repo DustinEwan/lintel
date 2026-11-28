@@ -24,17 +24,22 @@ from lintel.core.ports import semantic_stage
 from lintel.cli import main as cli_main
 from lintel.adapters.language import PythonSourceAnalyzer, analyzer_for_suffix
 from lintel.adapters.runtime import LintelRuntime, merge_facts
-from lintel.core.callgraph import concern_symbols, resolve_calls
+from lintel.core.callgraph import concern_symbols, relevant_unresolved_reviews, resolve_calls
 from lintel.core.checker import (
     check_boundary_concerns,
     check_executables,
     check_helper_laundering,
     check_wrapper_operations,
     check,
+    check_edges,
+    core_outward_paths,
+    find_cycles,
     module_name_from_path,
     region_for,
     check_semantic_review,
+    wrapper_invocations,
 )
+from lintel.core.graph_index import GraphEdge, GraphIndex, GraphNode
 from lintel.core.model import (
     BoundaryConcernUse,
     CallSite,
@@ -294,6 +299,222 @@ class CallGraphTests(unittest.TestCase):
             self.assertTrue(
                 any("parse_cli" in item.fields.get("reason", "") for item in findings)
             )
+
+class GraphIndexTests(unittest.TestCase):
+    def _helper_facts(self, *args, **kwargs):
+        return CallGraphTests()._helper_facts(*args, **kwargs)
+
+    def test_incoming_includes_extra_edges_in_stable_order(self):
+        a = Dependency("adapters.a", "core.target", source="adapters/a.py", line=9)
+        b = Dependency("adapters.b", "core.target", source="adapters/b.py", line=2)
+        other = Dependency("adapters.c", "other.target", source="adapters/c.py", line=1)
+        facts = FactSet(dependencies=(a,))
+        index = GraphIndex(facts)
+        self.assertEqual(
+            [
+                (dep.source_module, dep.source, dep.line)
+                for dep in index.incoming("core.target", (b, other))
+            ],
+            [
+                ("adapters.b", "adapters/b.py", 2),
+                ("adapters.a", "adapters/a.py", 9),
+            ],
+        )
+
+    def test_facade_matches_index_resolution(self):
+        facts, _, _ = self._helper_facts()
+        index = GraphIndex(facts)
+        self.assertEqual(resolve_calls(facts), index.resolve_calls())
+        self.assertEqual(concern_symbols(facts), index.concern_symbols())
+
+    def test_facade_matches_index_unresolved_reviews(self):
+        facts, _, _ = self._helper_facts(bindings=False)
+        index = GraphIndex(facts)
+        self.assertEqual(
+            relevant_unresolved_reviews(facts),
+            index.relevant_unresolved_reviews(),
+        )
+
+    def test_cycles_match_checker_violations(self):
+        facts = FactSet(
+            dependencies=(
+                Dependency("a", "b"),
+                Dependency("b", "c"),
+                Dependency("c", "a"),
+            )
+        )
+        index = GraphIndex(facts)
+        self.assertEqual(
+            [tuple(item.fields["cycle"]) for item in find_cycles(facts)],
+            [("a", "b", "c", "a")],
+        )
+        self.assertEqual(
+            [tuple(cycle) for cycle in index.cycles()],
+            [("a", "b", "c", "a")],
+        )
+
+    def test_callers_of_follows_resolved_call_order(self):
+        facts, helper, adapter = self._helper_facts()
+        index = GraphIndex(facts)
+        self.assertEqual(index.callers_of(helper.key), (adapter.key,))
+
+class GraphQueryCapabilitiesTests(unittest.TestCase):
+    def _chain_facts(self):
+        return FactSet(
+            modules=(
+                Module("lintel.core.a", "lintel/core/a.py"),
+                Module("lintel.adapters.b", "lintel/adapters/b.py"),
+                Module("lintel.external.c", "lintel/external/c.py"),
+            ),
+            dependencies=(
+                Dependency(
+                    "lintel.core.a",
+                    "lintel.adapters.b",
+                    source="lintel/core/a.py",
+                    line=2,
+                ),
+                Dependency(
+                    "lintel.adapters.b",
+                    "lintel.external.c",
+                    source="lintel/adapters/b.py",
+                    line=3,
+                ),
+            ),
+        )
+
+    def test_nodes_edges_and_provenance(self):
+        index = GraphIndex(self._chain_facts())
+        self.assertIn(
+            ("module", "lintel.core.a"), {node.id for node in index.nodes("module")}
+        )
+        edge = next(
+            item
+            for item in index.edges("depends_on")
+            if item.target_id == ("module", "lintel.adapters.b")
+        )
+        self.assertEqual((edge.origin, edge.line), ("lintel/core/a.py", 2))
+        self.assertIn(edge.id, {item.id for item in index.out("lintel.core.a", "depends_on")})
+        self.assertIn(
+            edge.id,
+            {item.id for item in index.incoming_edges("lintel.adapters.b", "depends_on")},
+        )
+
+    def test_reachable_and_path_with_predicate(self):
+        index = GraphIndex(self._chain_facts())
+        self.assertEqual(
+            [node.id[1] for node in index.reachable("lintel.core.a", kinds="depends_on")],
+            ["lintel.adapters.b", "lintel.external.c"],
+        )
+        self.assertEqual(
+            index.path("lintel.core.a", "lintel.external.c", kinds="depends_on"),
+            (
+                ("module", "lintel.core.a"),
+                ("module", "lintel.adapters.b"),
+                ("module", "lintel.external.c"),
+            ),
+        )
+        reached = index.reachable(
+            "lintel.core.a",
+            kinds="depends_on",
+            predicate=lambda node: node.id[1] == "lintel.external.c",
+        )
+        self.assertEqual([node.id[1] for node in reached], ["lintel.external.c"])
+
+    def test_resolve_call_and_symbol_lookups(self):
+        facts, helper, adapter = CallGraphTests()._helper_facts()
+        index = GraphIndex(facts)
+        edge, missing, candidates = index.resolve_call(facts.call_sites[0])
+        self.assertIsNone(missing)
+        self.assertEqual(edge.callee, helper.key)
+        self.assertEqual(edge.caller, adapter.key)
+        self.assertEqual(candidates, (helper,))
+        self.assertEqual(index.symbols_in(helper.module), (helper,))
+        self.assertEqual(index.module_of(helper.key), helper.module)
+
+    def test_subgraph_and_diff(self):
+        facts = self._chain_facts()
+        index = GraphIndex(facts)
+        edges = index.subgraph(
+            predicate=lambda item: isinstance(item, GraphEdge) and item.kind == "depends_on"
+        )
+        self.assertEqual({item.kind for item in edges.edges}, {"depends_on"})
+        self.assertTrue(edges.nodes)
+        modules = index.subgraph(
+            predicate=lambda item: isinstance(item, GraphNode) and item.kind == "module"
+        )
+        self.assertEqual(len(modules.nodes), 3)
+        earlier = GraphIndex(FactSet(modules=facts.modules[:2], dependencies=facts.dependencies[:1]))
+        diff = index.diff(earlier)
+        self.assertEqual([node.id for node in diff.added_nodes], [("module", "lintel.external.c")])
+        self.assertEqual([edge.kind for edge in diff.added_edges], ["depends_on"])
+        self.assertEqual(diff.removed_nodes, ())
+        self.assertEqual(diff.removed_edges, ())
+        reverse = earlier.diff(index)
+        self.assertEqual(
+            [node.id for node in reverse.removed_nodes],
+            [("module", "lintel.external.c")],
+        )
+        self.assertEqual([edge.kind for edge in reverse.removed_edges], ["depends_on"])
+
+    def test_wrapper_invocations_query(self):
+        facts = FactSet(
+            modules=(Module("lintel.adapters.wrap", "lintel/adapters/wrap.py"),),
+            wrapper_operations=(
+                WrapperOperation(
+                    "lintel.adapters.wrap",
+                    "subprocess",
+                    "native/tool.rs",
+                    "lintel/adapters/wrap.py",
+                    4,
+                ),
+            ),
+        )
+        edges = wrapper_invocations(facts, "lintel.adapters.wrap")
+        self.assertEqual([item.detail for item in edges], ["native/tool.rs"])
+        self.assertEqual(edges[0].target_id, ("external", "native.tool"))
+
+    def test_edge_findings_carry_path_evidence(self):
+        facts = self._chain_facts()
+        finding = next(
+            item for item in check_edges(facts, real_policy()) if item.rule == "core_outward"
+        )
+        self.assertEqual(
+            finding.fields["path"], ("lintel.core.a", "lintel.adapters.b")
+        )
+
+    def test_core_outward_paths_follow_transitive_dependencies(self):
+        self.assertEqual(
+            core_outward_paths(self._chain_facts(), real_policy()),
+            (
+                ("lintel.core.a", "lintel.adapters.b"),
+                ("lintel.core.a", "lintel.adapters.b", "lintel.external.c"),
+            ),
+        )
+
+    def test_semantic_review_exposes_graph_identity(self):
+        review = SemanticReview(
+            "lintel.adapters.b", "lintel/adapters/b.py", 4, "dynamic access"
+        )
+        finding = check_semantic_review(FactSet(reviews=(review,)), real_policy())[0]
+        self.assertTrue(finding.fields["graph_state_hash"])
+
+    def test_model_state_hash_does_not_gate_decision(self):
+        review = SemanticReview(
+            "lintel.adapters.b", "lintel/adapters/b.py", 4, "dynamic access"
+        )
+        facts = FactSet(reviews=(review,))
+        finding = check_semantic_review(facts, real_policy())[0]
+        decision = SemanticDecision(
+            violation_fingerprint(finding),
+            "compliant",
+            "reviewed",
+            0.99,
+            "test/model",
+            "1",
+            "evidence",
+            "model-state",
+        )
+        self.assertEqual(check_semantic_review(facts, real_policy(), (decision,)), ())
 
 class ConfigValidationTests(unittest.TestCase):
     def test_unknown_key_and_bad_reference(self):

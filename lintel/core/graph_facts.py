@@ -3,7 +3,8 @@
 Tree-sitter adapters and project metadata readers emit fragments with the
 same normalized shapes as :class:`lintel.core.model.FactSet`. This module only
 merges and deduplicates those fragments; it intentionally adds no second graph
-model and leaves edge resolution to ``callgraph.resolve_calls``.
+model. Callers query :class:`lintel.core.graph_index.GraphIndex` through the
+``lintel.core.callgraph`` façade for edge resolution.
 """
 
 from collections.abc import Iterable, Mapping

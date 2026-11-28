@@ -42,6 +42,7 @@ CHECKER_ARTIFACTS = (
     "adapters/go_build.py",
     "adapters/rust_graph.py",
     "core/graph_facts.py",
+    "core/graph_index.py",
     "core/source_patterns.py",
     "adapters/language/tree_sitter_analyzer.py",
     "adapters/language/tree_sitter_go.py",
