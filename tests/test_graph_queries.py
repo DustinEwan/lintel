@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 
-from lintel.adapters.graph_queries import (
+from lintel.core.graph_queries import (
     concern_context,
     module_impact,
     review_drift,
@@ -13,12 +13,14 @@ from lintel.adapters.graph_queries import (
 )
 from lintel.core import checker
 from lintel.core.model import (
+    CallSite,
     Dependency,
     Entrypoint,
     FactSet,
     Module,
     SemanticDecision,
     SemanticReview,
+    Symbol,
     facts_to_dict,
 )
 from lintel.core.ratchet import violation_fingerprint
@@ -55,8 +57,8 @@ class GraphQueryTests(unittest.TestCase):
                 Module("cli.b", "cli/b.py"),
             ),
             dependencies=(
-                Dependency("adapters.a", "core.target", "adapters/a.py", 2),
-                Dependency("cli.b", "adapters.a", "cli/b.py", 3),
+                Dependency("adapters.a", "core.target", source="adapters/a.py", line=2),
+                Dependency("cli.b", "adapters.a", source="cli/b.py", line=3),
             ),
             entrypoints=(Entrypoint("cli.b", "cli/b.py"),),
         )
@@ -94,7 +96,7 @@ class GraphQueryTests(unittest.TestCase):
 
     def test_review_drift_detects_changed_graph_context(self):
         review = SemanticReview(
-            "lintel.helpers", "lintel/helpers.py", 2, "argv parsing"
+            "lintel.helpers", "lintel/helpers.py", 3, "argv parsing"
         )
         decision = _accepting_decision(review)
         modules = (
@@ -110,8 +112,8 @@ class GraphQueryTests(unittest.TestCase):
                 Dependency(
                     "lintel.adapters.use",
                     "lintel.helpers",
-                    "lintel/adapters/use.py",
-                    3,
+                    source="lintel/adapters/use.py",
+                    line=3,
                 ),
             ),
             reviews=(review,),
@@ -126,9 +128,81 @@ class GraphQueryTests(unittest.TestCase):
         self.assertTrue(drifted[0]["added_edges"])
         self.assertEqual(unchanged, ())
 
-    def test_cli_query_commands_dispatch(self):
+    def test_review_drift_detects_call_edge_change(self):
+        review = SemanticReview(
+            "lintel.helpers", "lintel/helpers.py", 3, "argv parsing"
+        )
+        decision = _accepting_decision(review)
+        caller = Symbol(
+            "lintel.helpers::run#function#0",
+            "lintel.helpers",
+            "run",
+            "function",
+            "lintel/helpers.py",
+            1,
+            4,
+        )
+        helper = Symbol(
+            "lintel.helpers::parse#function#0",
+            "lintel.helpers",
+            "parse",
+            "function",
+            "lintel/helpers.py",
+            5,
+            8,
+        )
+        common = {
+            "modules": (Module("lintel.helpers", "lintel/helpers.py"),),
+            "symbols": (caller, helper),
+            "reviews": (review,),
+            "decisions": (decision,),
+        }
+        before = FactSet(**common)
+        after = FactSet(
+            **common,
+            call_sites=(
+                CallSite(caller.key, "parse", "name", "lintel/helpers.py", 3),
+            ),
+        )
+
+        drifted = review_drift(before, after)
+
+        self.assertEqual(len(drifted), 1)
+        self.assertTrue(
+            any(edge["kind"] == "calls" for edge in drifted[0]["added_edges"])
+        )
+
+    def test_review_drift_ignores_unrelated_symbol_addition(self):
         review = SemanticReview(
             "lintel.helpers", "lintel/helpers.py", 2, "argv parsing"
+        )
+        decision = _accepting_decision(review)
+        module = Module("lintel.helpers", "lintel/helpers.py")
+        before = FactSet(
+            modules=(module,), reviews=(review,), decisions=(decision,)
+        )
+        after = FactSet(
+            modules=(module,),
+            symbols=(
+                Symbol(
+                    "lintel.helpers::unrelated#function#0",
+                    "lintel.helpers",
+                    "unrelated",
+                    "function",
+                    "lintel/helpers.py",
+                    10,
+                    12,
+                ),
+            ),
+            reviews=(review,),
+            decisions=(decision,),
+        )
+
+        self.assertEqual(review_drift(before, after), ())
+
+    def test_cli_query_commands_dispatch(self):
+        review = SemanticReview(
+            "lintel.helpers", "lintel/helpers.py", 3, "argv parsing"
         )
         decision = _accepting_decision(review)
         before = FactSet(
@@ -145,8 +219,8 @@ class GraphQueryTests(unittest.TestCase):
                 Dependency(
                     "lintel.adapters.use",
                     "lintel.helpers",
-                    "lintel/adapters/use.py",
-                    3,
+                    source="lintel/adapters/use.py",
+                    line=3,
                 ),
             ),
             reviews=(review,),

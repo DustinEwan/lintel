@@ -2,10 +2,14 @@
 
 from dataclasses import asdict, is_dataclass
 
-from lintel.core import checker, review
-from lintel.core.graph_index import GraphIndex
-from lintel.core.model import FactSet, Policy, violation_to_dict
-from lintel.core.ratchet import violation_fingerprint
+from . import checker, review
+from .graph_index import GraphIndex
+from .model import FactSet, Policy, violation_to_dict
+from .ratchet import violation_fingerprint
+
+_MODULE_EDGE_KINDS = frozenset(
+    {"depends_on", "reviews", "has_entrypoint", "has_wrapper"}
+)
 
 
 def _module_names(nodes):
@@ -222,16 +226,36 @@ def _review_context(index, review):
         review.reason,
     )
     module_id = ("module", review.module)
-    seeds = {node_id for node_id in (review_id, module_id) if index.node(node_id)}
-    node_ids = set(seeds)
+    anchors = {
+        node_id
+        for node_id in (review_id, module_id)
+        if index.node(node_id) is not None
+    }
+    symbol_ids = set()
+    for node in index.nodes("symbol"):
+        value = node.value
+        source = getattr(value, "source", None)
+        line = getattr(value, "line", None)
+        end_line = getattr(value, "end_line", None)
+        if source != review.source or line is None:
+            continue
+        if end_line is None or end_line < line:
+            end_line = line
+        if line <= review.line <= end_line:
+            symbol_ids.add(node.id)
+    node_ids = set(anchors) | symbol_ids
     edge_ids = set()
     for edge in index.edges():
-        touching = (
-            edge.source_id in seeds
-            or edge.target_id in seeds
-            or (edge.origin == review.source and edge.line == review.line)
+        located = edge.origin == review.source and edge.line == review.line
+        touches_review = review_id in (edge.source_id, edge.target_id)
+        module_edge = (
+            module_id in (edge.source_id, edge.target_id)
+            and edge.kind in _MODULE_EDGE_KINDS
         )
-        if touching:
+        touches_symbol = (
+            edge.source_id in symbol_ids or edge.target_id in symbol_ids
+        )
+        if located or touches_review or module_edge or touches_symbol:
             edge_ids.add(edge.id)
             node_ids.add(edge.source_id)
             node_ids.add(edge.target_id)
