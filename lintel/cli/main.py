@@ -11,6 +11,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from lintel.adapters.runtime import LintelRuntime, SemanticDecisionError
+from lintel.adapters.diagnostics import render_text
 from lintel.core.model import (
     CheckFactsRequest,
     DEFAULT_STAGES,
@@ -34,7 +35,7 @@ def _parse_stages(value):
         )
     return stages
 
-def _emit(violations, output_format, proposals=()):
+def _emit(violations, output_format, proposals=(), facts=None, root="."):
     data = [violation_to_dict(item) for item in violations]
     proposal_data = [
         {
@@ -55,8 +56,7 @@ def _emit(violations, output_format, proposals=()):
         else:
             print(json.dumps(data, indent=2))
     elif data:
-        for item in data:
-            print(f"{item['rule']}: {item['message']}")
+        print(render_text(data, root=root, facts=facts), end="")
         for item in proposals:
             print(
                 f"proposal: {item.fingerprint}: {item.decision} "
@@ -101,7 +101,13 @@ def _check(args, runtime):
     except SemanticDecisionError as error:
         print(str(error), file=sys.stderr)
         return 2
-    return _emit(result.violations, args.format, result.proposals)
+    return _emit(
+        result.violations,
+        args.format,
+        result.proposals,
+        facts=result.facts,
+        root=runtime.root,
+    )
 
 
 

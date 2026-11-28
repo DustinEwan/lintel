@@ -15,6 +15,7 @@ sys.path.insert(0, ROOT)
 from lintel.adapters import config as config_adapter, contract_facts, contract_lock, incremental_cache, lean_generator
 import lintel.adapters.runtime as runtime_module
 from lintel.adapters import agent_files
+from lintel.adapters.diagnostics import render_diagnostic, render_text
 from lintel.adapters import source_graph_go
 from lintel.adapters import source_graph_rust
 from lintel.adapters import source_graph_typescript
@@ -52,6 +53,7 @@ from lintel.core.model import (
     facts_from_dict,
     facts_to_dict,
     policy_from_dict,
+    violation_to_dict,
     ScopeAssignment,
     PathOverrides,
     SelfConfig,
@@ -515,6 +517,86 @@ class GraphQueryCapabilitiesTests(unittest.TestCase):
             "model-state",
         )
         self.assertEqual(check_semantic_review(facts, real_policy(), (decision,)), ())
+
+class DiagnosticRendererTests(unittest.TestCase):
+    def test_text_diagnostic_points_at_source_token(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "core", "a.py")
+            os.makedirs(os.path.dirname(path))
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("header\nfrom lintel.adapters import b\n")
+            entry = {
+                "rule": "core_outward",
+                "message": "core module core.a depends on outer module adapters.b",
+                "from": "core.a",
+                "to": "adapters.b",
+                "location": "core/a.py:2",
+                "path": ["core.a", "adapters.b"],
+                "fix": "Invert the dependency through a port.",
+            }
+            text = render_diagnostic(entry, root=directory)
+            self.assertIn("error[core_outward]", text)
+            self.assertIn("2 | from lintel.adapters import b", text)
+            self.assertIn("^ outer dependency", text)
+            self.assertIn("path: core.a -> adapters.b", text)
+            self.assertIn("fix: Invert the dependency through a port.", text)
+
+    def test_cycle_points_at_offending_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "core", "a.py")
+            os.makedirs(os.path.dirname(path))
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("header\nimport adapters.b\n")
+            facts = FactSet(
+                dependencies=(
+                    Dependency("core.a", "core.b", source="core/a.py", line=2),
+                )
+            )
+            entry = {
+                "rule": "cycle",
+                "message": "dependency cycle: core.a -> core.b -> core.a",
+                "cycle": ["core.a", "core.b", "core.a"],
+            }
+            text = render_diagnostic(entry, root=directory, facts=facts)
+            self.assertIn("core/a.py:2", text)
+            self.assertIn("2 | import adapters.b", text)
+            self.assertIn("cycle: core.a -> core.b -> core.a", text)
+
+    def test_cycle_without_matching_dependency_stays_plain(self):
+        entry = {
+            "rule": "cycle",
+            "message": "dependency cycle: core.a -> core.b -> core.a",
+            "cycle": ["core.a", "core.b", "core.a"],
+        }
+        text = render_diagnostic(entry, facts=FactSet())
+        self.assertIn("error[cycle]", text)
+        self.assertIn("cycle: core.a -> core.b -> core.a", text)
+        self.assertNotIn(" --> ", text)
+
+    def test_finding_without_source_location_stays_plain(self):
+        entry = {"rule": "config_invalid", "message": "bad config"}
+        self.assertEqual(
+            render_diagnostic(entry), "error[config_invalid]: bad config"
+        )
+
+    def test_json_output_remains_flat_and_unchanged(self):
+        finding = Violation(
+            "core_outward",
+            "core module core.a depends on outer module adapters.b",
+            {
+                "from": "core.a",
+                "to": "adapters.b",
+                "location": "core/a.py:2",
+                "path": ["core.a", "adapters.b"],
+            },
+        )
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            code = cli_main._emit((finding,), "json")
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(stdout.getvalue()), [violation_to_dict(finding)])
+        self.assertNotIn("labels", stdout.getvalue())
+        self.assertNotIn("spans", stdout.getvalue())
 
 class ConfigValidationTests(unittest.TestCase):
     def test_unknown_key_and_bad_reference(self):

@@ -32,6 +32,7 @@ CHECKER_ARTIFACTS = (
     "adapters/contract_facts.py",
     "adapters/contract_lock.py",
     "adapters/incremental_cache.py",
+    "adapters/diagnostics.py",
     "adapters/extract_common.py",
     "adapters/runtime.py",
     "adapters/source_graph.py",
