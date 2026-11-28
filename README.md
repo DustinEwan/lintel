@@ -1,25 +1,34 @@
 # Lintel
 
-Lintel checks and governs inward architecture boundaries for agentic codebases. It provides deterministic checks, a Lean formalization, and harness-neutral hook and review commands.
+Lintel stops architecture rules from eroding while humans and AI agents edit a codebase. It turns those rules into facts a program can check, runs the same check in hooks and CI, and requires a recorded decision for exceptions.
 
 ## Why
 
-Clean, Hexagonal, Onion, and related architectures are variants of one idea: keep business logic at the center and push frameworks, I/O, UI, and persistence to the edge. They differ in vocabulary—ports and adapters, rings, layers—but share the same dependency rule: source dependencies point inward, the core defines contracts, outer code implements them, and the application can be exercised without infrastructure.
+Generated edits are fast and local. An agent can add an import that works, passes tests, and still moves outside code into the center of the app:
+
+```python
+# core/pricing.py
+from adapters.config import load_config  # core now depends on the outside world
+```
+
+Tests still pass, but the change cost grows: core can no longer be reasoned about without the config stack, and later agents copy the pattern.
+
+The inward rule prevents this. Put facts, rules, and use cases in **core**. Put files, processes, HTTP, databases, frameworks, and CLI handling in **adapters**. Let **entrypoints** wire them together. Dependencies point inward: entrypoints and adapters may use core; core does not import them. When core needs I/O, it calls an interface it owns, and an adapter implements it.
+
+Lintel makes that rule enforceable. It extracts source facts, checks them against a readable policy, separates new violations from recorded debt, and sends ambiguous cases to explicit semantic review. Hooks catch drift at edit time, `lintel check` gives the same result locally and in CI, `lintel.lock` catches silent rule changes, and every accepted exception carries a stable ID and a reason. A Lean model proves the deterministic part of the check over the extracted facts.
+
+If you know Clean, Hexagonal, or Onion architecture, this is their shared dependency rule; they differ mainly in vocabulary. [docs/philosophy.md](docs/philosophy.md) compares them.
 
 ```mermaid
 flowchart LR
-    E["Entrypoints: argv, env, exit"] --> A["Adapters: I/O, toolchains, frameworks"]
-    A --> C["Core: facts, policy, use cases"]
-    C -. runtime call via port .-> A
+    E["Entrypoints: CLI, agent hooks"] --> A["Adapters: files, APIs, toolchains"]
+    A --> C["Core: facts, rules, use cases"]
+    C -. runtime call through a core-owned interface .-> A
 ```
 
-Solid arrows show source dependencies; the dashed arrow shows a runtime call through a port. Adapters still depend inward on core-owned contracts.
+Solid arrows show source dependencies. The dashed arrow shows a call through an interface, not a source import.
 
-That discipline is easy to state and hard to keep, especially in agentic codebases where many edits are generated quickly and conventions are learned from examples. Lintel turns the shared rule into machine-checkable architecture facts, a decidable policy, a formal Lean model, and a review workflow for cases that cannot be decided statically. It separates new violations from existing debt and requires explicit, fingerprinted decisions for semantic exceptions.
-
-For agents, this makes the boundary contract visible at edit time: hooks report violations, `lintel check` gives the same answer everywhere, `lintel.lock` prevents silent rule changes, and semantic review records why an exception was accepted. The result is architecture intent that survives long sequences of autonomous edits.
-
-The detailed comparison and primary-source notes are in [docs/philosophy.md](docs/philosophy.md).
+For agents, that turns "keep the architecture clean" into concrete commands and machine-readable findings. Architecture intent survives long sequences of autonomous edits.
 
 ## Formal Lean spec
 
