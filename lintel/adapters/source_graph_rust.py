@@ -112,19 +112,20 @@ def _mod_name(node, source_bytes):
     return _text(identifier, source_bytes) if identifier is not None else None
 
 
-def _following_mod(node, source_bytes):
+def _following_mod_item(node):
     parent = node.parent
     if parent is None:
         return None
     children = list(parent.children)
-    target = next(
+    return next(
         (child for child in children[children.index(node) + 1 :] if child.type == "mod_item"),
         None,
     )
-    if target is None:
-        return None
+
+
+def _inline_ancestors(node, source_bytes):
     names = []
-    ancestor = target.parent
+    ancestor = node.parent
     while ancestor is not None:
         if ancestor.type == "mod_item" and any(
             child.type == "declaration_list" for child in ancestor.children
@@ -134,10 +135,18 @@ def _following_mod(node, source_bytes):
                 names.append(name)
         ancestor = ancestor.parent
     names.reverse()
+    return names
+
+
+def _following_mod(node, source_bytes):
+    target = _following_mod_item(node)
+    if target is None:
+        return None
+    parts = _inline_ancestors(target, source_bytes)
     name = _mod_name(target, source_bytes)
     if name:
-        names.append(name)
-    return "::".join(names) if names else None
+        parts.append(name)
+    return "::".join(parts) if parts else None
 
 
 def _include_path(node, source_bytes):
@@ -189,8 +198,14 @@ def extract(root):
                         {"source": rel(path, root), "line": line, "reason": "#[path] changes module paths"}
                     )
                     continue
+                relative_spec = spec
+                mod_node = _following_mod_item(node)
+                if mod_node is not None and not spec.startswith("/"):
+                    inline = _inline_ancestors(mod_node, source_bytes)
+                    if inline:
+                        relative_spec = "/".join(inline + [spec])
                 target = literal_target(
-                    path, spec, set(module_by_file), root, unparsed,
+                    path, relative_spec, set(module_by_file), root, unparsed,
                     line, "#[path] target not found",
                 )
                 if target is not None:

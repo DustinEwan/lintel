@@ -1590,7 +1590,7 @@ class RustGraphContributorTests(unittest.TestCase):
             self.write(
                 directory,
                 "src/lib.rs",
-                'mod outer {\n  #[path = "outer/nested.rs"]\n  mod nested;\n}\n',
+                'mod outer {\n  #[path = "nested.rs"]\n  mod nested;\n}\n',
             )
             self.write(directory, "src/outer/nested.rs", "pub fn nested() {}\n")
             data = source_graph_rust.extract(directory)
